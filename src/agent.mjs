@@ -37,7 +37,10 @@ class Stale extends Fail {}
 /** The page stopped at an alert or a question: nothing in it answers until that is answered. */
 class DialogOpen extends Fail {}
 
-const NO_PANE = 'No Chrome pane in this Herdr tab. Run: chrome-pane open <url>';
+// Outside Herdr nothing can open a pane for the agent: a person shows a tab first.
+const noPane = () => (process.env.HC_TERMINAL_ID
+  ? 'No Chrome pane in this Herdr tab. Run: chrome-pane open <url>'
+  : 'No Chrome pane is open. Show a tab first: run chrome-pane in a terminal.');
 
 // ---------------------------------------------------------------- arguments
 
@@ -681,7 +684,7 @@ function paneHere() {
 }
 
 async function bridge(o) {
-  if (!(await canConnect(o.socket || socketPath()))) throw new Fail(NO_PANE, 2);
+  if (!(await canConnect(o.socket || socketPath()))) throw new Fail(noPane(), 2);
   const cdp = await connect({ ...o, autostart: false });
   if (cdp.state !== 'ready') await Promise.race([cdp.ready(), sleep(1500)]).catch(() => {});
   if (cdp.state !== 'ready') { cdp.close(); throw new Fail('Chrome has not allowed the connection yet: the person must accept its “Allow remote debugging?” prompt, on the computer Chrome runs on.', 2); }
@@ -717,7 +720,7 @@ export async function runAgent(verb, argv, io = {}) {
     if (verb === 'dialog') {
       const accept = o._[0] === 'accept';
       if (!accept && o._[0] !== 'dismiss') throw new Fail('dialog accept [text], or dialog dismiss');
-      if (!targetId) throw new Fail(NO_PANE, 2);
+      if (!targetId) throw new Fail(noPane(), 2);
       if (!pane.dialog) throw new Fail('the page shows no dialog');
       // The pane's viewer answers it: only a connection that saw the dialog open can.
       writeAsk(targetId, { dialog: { accept, ...(o._[1] !== undefined ? { text: o._.slice(1).join(' ') } : {}) } });
@@ -730,7 +733,7 @@ export async function runAgent(verb, argv, io = {}) {
     }
     if (pane?.dialog) throw new DialogOpen(dialogLine(pane.dialog));
     if (!targetId) {
-      if (verb !== 'open') throw new Fail(NO_PANE, 2);
+      if (verb !== 'open') throw new Fail(noPane(), 2);
       targetId = await openPaneAt(o.address);
       fresh = true;
     }

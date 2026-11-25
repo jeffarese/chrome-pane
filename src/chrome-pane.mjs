@@ -143,9 +143,11 @@ async function main() {
 
   if (o.quality && !['auto', 'sharp', 'fast'].includes(o.quality)) throw new Error('--quality is auto, sharp or fast');
   const view = { url: o._[0], tab: o.tab, front: !o['no-front'], quality: o.quality, mirror: o.mirror, scale: o.scale, fps: o.fps, rate: o.rate, parts: !o.whole, userDataDir: o.userDataDir, socket: o.socket };
+  // A lone word that is no address is a mistyped command, not something to search the web for.
+  if (cmd !== 'view' && view.url && !/[.:/\s]/.test(view.url) && view.url !== 'localhost') {
+    throw new Error(`unknown command ${view.url} (chrome-pane --help; to search for it: chrome-pane view ${view.url})`);
+  }
   if (cmd !== 'view' && (o.pane || !process.stdin.isTTY || !process.stdout.isTTY)) {
-    // With no terminal a word that is no address is a mistyped command, not something to search for.
-    if (view.url && !/[.:/]/.test(view.url) && view.url !== 'localhost') throw new Error(`unknown command ${view.url} (chrome-pane --help)`);
     const pass = [];
     if (view.url) pass.push(view.url);
     for (const [k, flag] of [['quality', '--quality'], ['tab', '--tab'], ['scale', '--scale'], ['fps', '--fps'], ['rate', '--rate'], ['userDataDir', '--user-data-dir'], ['socket', '--socket']]) if (view[k] !== undefined) pass.push(flag, String(view[k]));

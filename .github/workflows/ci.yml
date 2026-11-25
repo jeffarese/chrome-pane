@@ -19,6 +19,6 @@ jobs:
           node-version: 22
       - run: npm test
       - run: for f in src/*.mjs herdr/install.mjs test/e2e/eval.mjs; do node --check "$f"; done
-      - run: sh -n install.sh && sh -n bin/chrome-pane && sh -n test/e2e/run.sh
+      - run: sh -n install.sh && sh -n bin/chrome-pane && sh -n test/e2e/run.sh && sh -n docs/demo/showcase.sh && sh -n docs/demo/shots.sh
       - run: python3 -m py_compile test/e2e/viewer_test.py test/e2e/agent_test.py
       - run: bin/chrome-pane --version && bin/chrome-pane --help >/dev/null && bin/chrome-pane skill >/dev/null
