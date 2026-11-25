@@ -500,7 +500,7 @@ export function keyEvent(text) {
     else throw new Fail(`not a key: ${text}`);
   }
   ev.name = KEY_NAMES[name.toLowerCase()] ?? (/^f\d{1,2}$/i.test(name) ? name.toUpperCase() : name);
-  if (!keyCalls(ev).length) throw new Fail(`not a key: ${text} (Enter, Tab, Escape, ArrowDown, ctrl+a, a letter...)`);
+  if (!keyCalls(ev).length) throw new Fail(`not a key: ${text} (Enter, Tab, Escape, ArrowDown, ctrl+a to select all, a letter...)`);
   return ev;
 }
 
@@ -741,16 +741,22 @@ async function bridge(o) {
 
 /** Opens the pane (it starts the bridge and shows the address) and waits for it to say which tab it shows. */
 async function openPaneAt(url) {
-  let here;
-  try { here = whereAmI(); } catch { throw new Fail('There is no Chrome pane, and this is not a Herdr terminal to open one in. Run chrome-pane in a terminal first.', 2); }
+  let here = null;
+  try { here = whereAmI(); } catch {}
+  const mine = (p) => !here || (p.space === here.space && p.tab === here.tab);
+  // A pane that is there but shows no tab (its list of tabs, or it waits for Chrome's prompt)
+  // is asked to open the address: never a second pane beside it.
+  const idle = listPanes({ all: true }).find((p) => mine(p) && !p.targetId);
+  if (!idle && !here) throw new Fail('There is no Chrome pane, and this is not a Herdr terminal to open one in. Run chrome-pane in a terminal first.', 2);
   const since = Date.now();
-  openPane([url]);
+  if (idle) writeAsk(`pane-${idle.pid}`, { open: url }); else openPane([url]);
   for (let i = 0; i < 150; i++) {
     await sleep(100);
-    const pane = listPanes().find((p) => p.space === here.space && p.tab === here.tab && p.at >= since);
+    const pane = listPanes().find((p) => mine(p) && (idle ? p.pid === idle.pid : p.at >= since));
     if (pane) return pane.targetId;
   }
-  throw new Fail('The pane opened but shows no tab yet: Chrome may be asking the person to allow the connection. Try again once they have.', 2);
+  if (idle) writeAsk(`pane-${idle.pid}`, null);
+  throw new Fail(`The pane ${idle ? 'is there' : 'opened'} but shows no tab yet: Chrome may be asking the person to allow the connection. Try again once they have.`, 2);
 }
 
 /** Runs one agent command. Resolves to its exit code; what it has to say goes to `out`. */
@@ -895,6 +901,9 @@ export async function runAgent(verb, argv, io = {}) {
       }
     }
     out(await report(tab, before, { whole: verb === 'scroll' && steps.length === 1 }));
+    // The page opened a tab of its own (a sign-in window, a link in a new tab) and the pane followed it.
+    const now = paneHere();
+    if (now?.targetId && now.targetId !== targetId) out('the pane now shows another tab, which the page opened: chrome-pane snapshot prints it');
     return failed ? 1 : 0;
   } catch (e) {
     if (e instanceof Stale && tab) {

@@ -62,6 +62,10 @@ export class Viewer {
     this.tiling = opts.parts !== false;
     this.tabs = [];
     this.sel = 0;
+    this.closing = null;         // the tab that x was pressed on in the list: closed if x is pressed again
+    this.notice = null;          // a line shown in the bar for a moment
+    this.backTo = null;          // the tab to return to when the one shown, which its page opened, closes
+    this.startedAt = Date.now();
     this.dialog = null;
     this.hidden = false;         // Chrome isn't drawing the tab (it's behind another one, or its window is covered)
     this.mayFront = false;       // one automatic bring-to-front is owed: set when a tab is opened here
@@ -112,6 +116,9 @@ export class Viewer {
     process.on('exit', () => { unregisterPane(); this.restore(); });
     // An agent's command finds the tab to act on by the pane of its own Herdr tab.
     try { this.where = whereAmI(); } catch {}
+    // Known from the start, before it shows a tab: an agent asking for a page then asks this
+    // pane, and does not open a second one beside it.
+    this.announce();
     try {
       fs.mkdirSync(notesDir(), { recursive: true, mode: 0o700 });
       fs.watch(notesDir(), () => this.readAgent()).unref?.();
@@ -186,6 +193,14 @@ export class Viewer {
     process.exit(1);
   }
 
+  /** A line in the bar for a moment, over the page's own. */
+  note(text) {
+    clearTimeout(this.noticeTimer);
+    this.notice = text;
+    this.noticeTimer = setTimeout(() => { this.notice = null; if (this.mode === 'page') this.drawBar(); }, 2500);
+    this.drawBar();
+  }
+
   say(text) {
     if (this.mode === 'message' && this.message === text) return;
     this.mode = 'message'; this.message = text; this.draw();
@@ -195,13 +210,16 @@ export class Viewer {
 
   async pages() { return (await this.cdp.send('Target.getTargets')).targetInfos.filter(isPage); }
 
-  async attach(targetId) {
+  /** Shows that tab. `backTo`: the tab whose page opened it, to return to when it closes. */
+  async attach(targetId, backTo = null) {
     await this.detach();
+    this.backTo = backTo;
     const { sessionId: sid } = await this.cdp.send('Target.attachToTarget', { targetId, flatten: true });
     const { targetInfo } = await this.cdp.send('Target.getTargetInfo', { targetId });
     // zoom: Chrome's zoom of this page (80% is 0.8; Chrome keeps one per site). points: the size
     // this pane gave the page, in the window's points. view: what the page shows, in CSS pixels.
     this.tab = { targetId, sid, title: targetInfo.title, url: targetInfo.url, zoom: 1, points: null, view: null };
+    this.shownAt = Date.now();
     this.announce();
     this.mode = 'page';
     this.editing = null;
@@ -216,6 +234,26 @@ export class Viewer {
     // The tab may not be the one in front in Chrome: it still gets a caret and focus events.
     await this.cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true }, sid).catch(() => {});
     await this.cast();
+  }
+
+  /**
+   * The tab shown is gone: closed, or Chrome let go of it (it says the second before the first
+   * when a tab closes). One that a page of this pane had opened (a sign-in window, a link in a
+   * new tab) and that is now closed gives the pane back to that page; otherwise, the list of tabs.
+   */
+  async lost(tab, why) {
+    if (this.tab !== tab) return;
+    const back = this.backTo;
+    this.tab = null; this.backTo = null;
+    this.announce();
+    try {
+      await sleep(150);
+      const pages = await this.pages();
+      const closed = !pages.some((t) => t.targetId === tab.targetId);
+      if (closed) why = 'That tab was closed.';
+      if (!this.tab && closed && back && pages.some((t) => t.targetId === back)) return await this.attach(back);
+    } catch {}
+    if (!this.tab) await this.showTabs(why).catch(() => {});
   }
 
   /** Reads the tab's title and address again: Chrome doesn't announce every change of them. */
@@ -253,13 +291,23 @@ export class Viewer {
 
   /** Tells agents which tab this pane shows (none while it shows the list of tabs), and the dialog its page stopped at. */
   announce() {
-    try { registerPane(this.tab?.targetId ?? null, this.where, this.tab ? this.dialog : null); } catch {}
+    // `at` is when this pane last took a tab: a dialog opening must not make it "the latest".
+    try { registerPane(this.tab?.targetId ?? null, this.where, this.tab ? this.dialog : null, this.shownAt ?? this.startedAt); } catch {}
     this.readAgent();
   }
 
   /** An agent's answer to the page's dialog, which it leaves for this viewer to give. */
   readAsk() {
     const tab = this.tab;
+    // Asked of this pane itself while it shows no tab: open that address.
+    const mine = readAsk(`pane-${process.pid}`);
+    if (mine) {
+      writeAsk(`pane-${process.pid}`, null);
+      const url = typeof mine.open === 'string' && Date.now() - mine.at < 15000 ? normalizeUrl(mine.open) : null;
+      if (url && /^(https?:|about:blank$)/i.test(url) && !tab && this.cdp?.state === 'ready') {
+        this.cdp.send('Target.createTarget', { url, background: true }).then((r) => this.attach(r.targetId)).catch((e) => this.say(e.message));
+      }
+    }
     if (!tab) return;
     const ask = readAsk(tab.targetId);
     if (!ask) return;
@@ -398,13 +446,13 @@ export class Viewer {
     } else if (method === 'Target.targetCreated') {
       const t = p.targetInfo;
       // A link that opens a new tab: follow it.
-      if (tab && this.mode === 'page' && isPage(t) && t.openerId === tab.targetId) this.attach(t.targetId).catch(() => {});
+      if (tab && this.mode === 'page' && isPage(t) && t.openerId === tab.targetId) this.attach(t.targetId, tab.targetId).catch(() => {});
       else if (this.mode === 'tabs') this.refreshTabs();
     } else if (method === 'Target.targetDestroyed') {
-      if (tab && p.targetId === tab.targetId) { this.tab = null; this.announce(); this.showTabs('That tab was closed.').catch(() => {}); }
+      if (tab && p.targetId === tab.targetId) this.lost(tab, 'That tab was closed.');
       else if (this.mode === 'tabs') this.refreshTabs();
     } else if (method === 'Target.detachedFromTarget') {
-      if (tab && p.sessionId === tab.sid) { this.tab = null; this.announce(); this.showTabs('Chrome detached that tab.').catch(() => {}); }
+      if (tab && p.sessionId === tab.sid) this.lost(tab, 'Chrome detached that tab.');
     } else if ((method === 'Page.frameNavigated' || method === 'Page.loadEventFired' || method === 'Page.navigatedWithinDocument') && tab && sid === tab.sid) {
       this.refreshInfo();
     } else if (method === 'Page.screencastVisibilityChanged' && tab && sid === tab.sid) {
@@ -440,7 +488,11 @@ export class Viewer {
     let text;
     if (this.editing !== null) text = ` Go to: ${this.editing}▏`;
     else if (this.dialog) text = ` ${this.dialog.type}: ${this.dialog.message}   (Enter: OK · Esc: cancel)`;
-    else if (this.mode === 'tabs') text = ' Chrome tabs    ↑↓ move · Enter show · n new tab · x close tab · Esc back · q quit';
+    else if (this.mode === 'tabs' && this.closing) {
+      const t = this.tabs.find((x) => x.targetId === this.closing);
+      text = ` Close “${fit(t?.title || t?.url || 'this tab', 40).trimEnd()}” in Chrome?    x again: close it · any other key: keep it`;
+    } else if (this.mode === 'tabs') text = ' Chrome tabs    ↑↓ move · Enter show · n new tab · x close tab · Esc back · q quit';
+    else if (this.mode === 'page' && this.tab && this.notice) text = ` ${this.notice}`;
     else if (this.mode === 'page' && this.tab && this.hidden) text = ' ⏸  Chrome is not drawing this tab (it is behind another one). Click or press a key to bring it forward.';
     else if (this.mode === 'page' && this.tab && this.agent) {
       text = ` ● Agent: ${this.agent}`;
@@ -659,7 +711,12 @@ export class Viewer {
     if (ev.type === 'reply') return this.onReply(ev);
     if (ev.type === 'focus') return;
     if (ev.type === 'mouse') return this.onMouse(ev);
-    if (ev.type === 'key' && ev.ctrl && (ev.name === 'q' || ev.name === 'c')) return this.quit();
+    if (ev.type === 'key' && ev.ctrl && ev.name === 'q') return this.quit();
+    // Ctrl+C is copy to a page; with no page to give it to, it ends the program as in any terminal.
+    if (ev.type === 'key' && ev.ctrl && ev.name === 'c') {
+      if (this.mode !== 'page' || !this.tab || this.editing !== null) return this.quit();
+      this.note('Ctrl+C copies in the page · Ctrl+Q quits the viewer');
+    }
     if (this.editing !== null) return this.onEditKey(ev);
     if (this.mode === 'tabs') return this.onTabsKey(ev);
     if (this.mode !== 'page' || !this.tab) return ev.type === 'key' && (ev.name === 'q' || ev.name === 'Escape') ? this.quit() : undefined;
@@ -772,6 +829,7 @@ export class Viewer {
 
   async showTabs(note = '') {
     this.mode = 'tabs';
+    this.closing = null;
     this.editing = null;
     this.message = note;
     this.tabs = await this.pages();
@@ -802,11 +860,19 @@ export class Viewer {
   onTabsKey(ev) {
     if (ev.type !== 'key') return;
     const n = this.tabs.length;
+    // Closing a tab is closing it in the person's real Chrome, with whatever was unsaved in it: x asks, x again does.
+    if (this.closing) {
+      const id = this.closing;
+      this.closing = null;
+      if (ev.name === 'x' && this.tabs[this.sel]?.targetId === id) { this.drawBar(); return void this.cdp.send('Target.closeTarget', { targetId: id }).catch(() => {}); }
+      this.drawBar();
+      if (ev.name === 'x' || ev.name === 'Escape') return;
+    }
     if (ev.name === 'ArrowUp' || ev.name === 'k') this.sel = Math.max(0, this.sel - 1);
     else if (ev.name === 'ArrowDown' || ev.name === 'j') this.sel = Math.min(n - 1, this.sel + 1);
     else if (ev.name === 'Enter') return void this.openSelected();
     else if (ev.name === 'n') { this.editing = ''; this.newTab = true; return this.drawBar(); }
-    else if (ev.name === 'x' && this.tabs[this.sel]) return void this.cdp.send('Target.closeTarget', { targetId: this.tabs[this.sel].targetId }).catch(() => {});
+    else if (ev.name === 'x' && this.tabs[this.sel]) { this.closing = this.tabs[this.sel].targetId; return this.drawBar(); }
     else if (ev.name === 'q') return this.quit();
     else if (ev.name === 'Escape' || (ev.ctrl && ev.name === 't')) {
       if (!this.tab) return this.quit();
@@ -824,6 +890,7 @@ export class Viewer {
       return this.draw();
     }
     if (!pressed || (ev.b & 3) !== 0) return;
+    this.closing = null;
     const row = Math.floor(py / this.term.cellH) - 2 + (this.tabTop || 0);
     if (row >= 0 && row < this.tabs.length) { this.sel = row; this.openSelected(); }
   }

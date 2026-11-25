@@ -19,7 +19,7 @@ Usage:
   chrome-pane [url]            show a Chrome tab: a new one at url, or pick one of the open tabs
   chrome-pane view [url]       the same, always in this terminal
   chrome-pane tabs [--json]    list Chrome's tabs
-  chrome-pane status           is the bridge to Chrome running
+  chrome-pane status           is the bridge to Chrome running (exit 1 when it is not)
   chrome-pane stop             stop the bridge
   chrome-pane bridge           run the bridge in the foreground (viewers start it themselves)
   chrome-pane herdr [--remove] give this computer's Herdr app the name and icon for it
@@ -35,7 +35,7 @@ For agents (they act on the tab the pane of their Herdr tab shows, and answer in
                                one action; prints what changed
   chrome-pane wait <text>      until it is on the page (--gone <text>, --url <part>, --idle, --timeout <s>)
   chrome-pane batch            one action per line on its input
-  chrome-pane shot             a picture of the view, into a file (--scale <n>, --png, --out <file>)
+  chrome-pane shot             a picture of the view, into a file (--scale <n>, --png, --out <new file>)
   chrome-pane eval <js>, dialog accept|dismiss, done
 
 In a terminal, the tab is shown there. Called by a program with no terminal (an agent) inside
@@ -57,7 +57,7 @@ Options:
   --version, --help
 
 Keys in the viewer: Ctrl+T tabs, Ctrl+L address, Ctrl+R reload, Alt+←/→ back and forward,
-Ctrl+Q quit. Everything else, and the mouse, goes to the page.
+Ctrl+Q quit. Everything else, and the mouse, goes to the page (Ctrl+C copies there).
 
 Chrome must allow it once: chrome://inspect/#remote-debugging, then accept its prompt.`;
 

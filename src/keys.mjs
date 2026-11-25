@@ -7,9 +7,13 @@ const PUNCT = { '-': ['Minus', 189], '=': ['Equal', 187], '[': ['BracketLeft', 2
 const SHIFTED = { '!': '1', '@': '2', '#': '3', $: '4', '%': '5', '^': '6', '&': '7', '*': '8', '(': '9', ')': '0', _: '-', '+': '=',
   '{': '[', '}': ']', '|': '\\', ':': ';', '"': "'", '<': ',', '>': '.', '?': '/', '~': '`' };
 
+// On a Mac the editing shortcuts are Cmd's, and a terminal keeps Cmd for itself: Ctrl stands in
+// for it. Chrome there runs none of them from a key event alone: it wants the command named.
+const MAC_EDIT = { a: 'selectAll', c: 'copy', x: 'cut', v: 'paste', z: 'undo' };
+
 const call = (params) => ({ method: 'Input.dispatchKeyEvent', params });
 
-export function keyCalls(ev) {
+export function keyCalls(ev, mac = process.platform === 'darwin') {
   let modifiers = (ev.alt ? 1 : 0) | (ev.ctrl ? 2 : 0) | (ev.meta ? 4 : 0) | (ev.shift ? 8 : 0);
   const plain = !(ev.ctrl || ev.alt || ev.meta);
   const name = ev.name;
@@ -27,6 +31,11 @@ export function keyCalls(ev) {
   if (/[a-z]/.test(unshifted)) { code = 'Key' + unshifted.toUpperCase(); vk = unshifted.toUpperCase().charCodeAt(0); }
   else if (/[0-9]/.test(unshifted)) { code = 'Digit' + unshifted; vk = unshifted.charCodeAt(0); }
   else if (PUNCT[unshifted]) [code, vk] = PUNCT[unshifted];
+  if (mac && (ev.ctrl || ev.meta) && !ev.alt && MAC_EDIT[unshifted]) {
+    modifiers = (modifiers & ~2) | 4;
+    const base = { key: name, modifiers, code, windowsVirtualKeyCode: vk, nativeVirtualKeyCode: vk };
+    return [call({ type: 'rawKeyDown', ...base, commands: [unshifted === 'z' && modifiers & 8 ? 'redo' : MAC_EDIT[unshifted]] }), call({ type: 'keyUp', ...base })];
+  }
   const base = { key: name, modifiers, ...(code ? { code, windowsVirtualKeyCode: vk, nativeVirtualKeyCode: vk } : {}) };
   const down = plain ? { type: 'keyDown', text: name, unmodifiedText: unshifted, ...base } : { type: 'rawKeyDown', ...base };
   return [call(down), call({ type: 'keyUp', ...base })];

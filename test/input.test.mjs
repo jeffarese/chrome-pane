@@ -43,7 +43,11 @@ test('keys as DevTools calls', () => {
   assert.equal(up.params.type, 'keyUp');
   assert.equal(keyCalls({ name: '!' })[0].params.modifiers, 8);
   assert.equal(keyCalls({ name: '!' })[0].params.code, 'Digit1');
-  assert.deepEqual(keyCalls({ name: 'a', ctrl: true })[0].params, { type: 'rawKeyDown', key: 'a', modifiers: 2, code: 'KeyA', windowsVirtualKeyCode: 65, nativeVirtualKeyCode: 65 });
+  assert.deepEqual(keyCalls({ name: 'a', ctrl: true }, false)[0].params, { type: 'rawKeyDown', key: 'a', modifiers: 2, code: 'KeyA', windowsVirtualKeyCode: 65, nativeVirtualKeyCode: 65 });
+  // On a Mac, Ctrl stands in for Cmd in the editing shortcuts, and the command is named.
+  assert.deepEqual(keyCalls({ name: 'a', ctrl: true }, true)[0].params, { type: 'rawKeyDown', key: 'a', modifiers: 4, code: 'KeyA', windowsVirtualKeyCode: 65, nativeVirtualKeyCode: 65, commands: ['selectAll'] });
+  assert.deepEqual(keyCalls({ name: 'Z', meta: true }, true)[0].params.commands, ['redo']);
+  assert.equal(keyCalls({ name: 'l', ctrl: true }, true)[0].params.commands, undefined);
   assert.equal(keyCalls({ name: 'Enter' })[0].params.text, '\r');
   assert.equal(keyCalls({ name: 'ArrowDown', shift: true })[0].params.modifiers, 8);
   assert.deepEqual(keyCalls({ name: 'ñ' }), [{ method: 'Input.insertText', params: { text: 'ñ' } }]);

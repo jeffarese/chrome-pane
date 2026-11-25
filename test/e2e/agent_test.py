@@ -50,7 +50,8 @@ LONG = ('<!doctype html><title>Long page</title><body style="margin:20px;font:16
 # A page that tries to talk to the terminal: an Esc sequence in its title and its text, and the
 # one-byte forms of Esc [ and of the end of a sequence.
 ESC = '<!doctype html><title>Sneaky\x1b]52;c;eA==\x07 title</title><body><h1>Esc\x1b[31m here</h1><p>and \x9b31m too\x9c'
-PAGES = {'/': FORM, '/next': NEXT, '/long': LONG, '/esc': ESC}
+POP = '<!doctype html><title>Pop page</title><body><h1>Pop</h1><button onclick="window.open(\'/next\')">Open</button>'
+PAGES = {'/': FORM, '/next': NEXT, '/long': LONG, '/esc': ESC, '/pop': POP}
 
 class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
@@ -172,6 +173,9 @@ run('type', 'Ada!')
 typed = value('document.getElementById("name").value')
 run('press', 'Backspace')
 step('fill with nothing empties; type and press go to the focused field: %s' % typed, emptied == '' and typed == 'Ada!' and value('document.getElementById("name").value') == 'Ada')
+run('press', 'ctrl+a')
+run('type', 'Z')
+step('press ctrl+a selects all (the Mac\'s Cmd+A too)', value('document.getElementById("name").value') == 'Z')
 run('click', pw)
 code, text, _ = run('type', 'secret')
 step('type: refused while a password field has the focus', code == 1 and 'ask the person' in text and value('document.getElementById("pw").value') == 'hunter2')
@@ -259,9 +263,35 @@ code, text, _ = run('open', site + '/esc')
 said = text + run('read')[1] + run('find', 'here')[1]
 said += subprocess.run([launcher, 'tabs'], env=env, capture_output=True, text=True, timeout=30).stdout
 step('what a page writes is printed without its control codes', code == 0 and 'Sneaky' in said and 'Esc' in said and 'too' in said and re.search('[\x1b\x07\x9b\x9c]', said) is None)
+code, text, _ = run('open', site + '/pop')
+code, text, _ = run('click', ref(text, 'button "Open"'))
+step('a tab the page opens: the pane follows it, and the agent is told', code == 0 and 'now shows another tab' in text)
+followed = run('snapshot')[1].startswith('Second page')
+run('eval', 'window.close()')
+time.sleep(1.5)
+code, text, _ = run('snapshot')
+step('when that tab closes, the pane is back on the page that opened it', followed and code == 0 and text.startswith('Pop page'))
+
 n = len(out)
 code, text, _ = run('done')
 step('done: the pane is the person\'s again', code == 0 and shown(b'\x1b]7501;state=idle:app=chrome', 7, n))
+
+n = len(out)
+os.write(fd, b'\x14')
+shown(b'Chrome tabs', 3, n)
+os.write(fd, b'x')
+asked = shown('Close “Pop page”'.encode(), 3, n)
+os.write(fd, b'z')
+time.sleep(0.4)
+kept = run('snapshot')[0] == 0
+os.write(fd, b'x')
+time.sleep(0.3)
+os.write(fd, b'x')
+closed = shown(b'That tab was closed.', 5, n)
+code, text, _ = run('snapshot')
+step('x in the list of tabs asks before it closes a tab of the real Chrome', asked and kept and closed and code == 2)
+code, text, _ = run('open', site + '/next')
+step('open: a pane that shows no tab is asked to show the page, not joined by a second', code == 0 and text.split('\n')[0] == 'Second page')
 
 n = len(out)
 os.write(fd, b'\x11')

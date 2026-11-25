@@ -70,13 +70,17 @@ chrome-pane tabs                 # list the tabs
 
 | Key | |
 | --- | --- |
-| **Ctrl+T** | The list of Chrome's tabs: show another, open a new one, close one |
+| **Ctrl+T** | The list of Chrome's tabs: show another, open a new one, close one (it asks first) |
 | **Ctrl+L** | Type an address, or words to search for |
 | **Ctrl+R** | Reload |
 | **Alt+←**, **Alt+→** | Back, forward |
+| **Ctrl+A**, **Ctrl+C**, **Ctrl+X**, **Ctrl+V**, **Ctrl+Z** | Select all, copy, cut, paste and undo in the page. On a Mac too, where Chrome has them on Cmd, which a terminal keeps for itself |
 | **Ctrl+Q** | Quit the viewer. The tab stays open in Chrome |
 
-Everything else, and the mouse, goes to the page. The bar's `‹`, `›` and `↻` take clicks, and a
+Everything else, and the mouse, goes to the page. Copy and paste use the clipboard of the
+computer Chrome runs on; your terminal's own paste types into the page from yours. A window
+the page opens (a sign-in, a link in a new tab) is shown in its place, and the pane returns to
+the page when that window closes. The bar's `‹`, `›` and `↻` take clicks, and a
 click on the address edits it. `chrome-pane --help` lists the options.
 
 ## For agents
@@ -228,8 +232,8 @@ with. In short:
 - Native menus (a `<select>`'s list, the file picker, right-click menus) are drawn by the
   system, not the page, so they don't appear. An agent's `select` works all the same. In Herdr,
   right-click opens Herdr's own menu.
-- Cmd shortcuts belong to the terminal app; Ctrl+Q, Ctrl+C, Ctrl+T, Ctrl+L and Ctrl+R belong to
-  the viewer. No sound, and video is a slideshow.
+- Cmd shortcuts belong to the terminal app; Ctrl+Q, Ctrl+T, Ctrl+L and Ctrl+R belong to the
+  viewer. No sound, and video is a slideshow.
 - An agent's `snapshot` lists what the page marks as a control. Something clickable that is only
   a styled `<div>` is not in it: `find <text>` gives its ref.
 
