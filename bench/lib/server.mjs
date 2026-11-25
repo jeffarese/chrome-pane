@@ -7,14 +7,15 @@ import { startPath, taskById } from './tasks.mjs';
 
 const MAX_BODY = 64 * 1024;
 
-export function startServer({ port = 47811, host = '127.0.0.1' } = {}) {
+/** `latency`: every answer comes that many ms late, give or take 30%, as from a server that is not on this computer. */
+export function startServer({ port = 47811, host = '127.0.0.1', latency = 0 } = {}) {
   const runs = new Map();
 
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, `http://${host}`);
     const send = (status, type, body, headers = {}) => {
-      res.writeHead(status, { 'content-type': type, 'cache-control': 'no-store', ...headers });
-      res.end(body);
+      const answer = () => { res.writeHead(status, { 'content-type': type, 'cache-control': 'no-store', ...headers }); res.end(body); };
+      if (latency > 0) setTimeout(answer, latency * (0.7 + 0.6 * Math.random())); else answer();
     };
     if (url.pathname === '/favicon.ico') return send(204, 'image/x-icon', '');
     const m = url.pathname.match(/^\/r\/([\w-]+)(\/.*)?$/);

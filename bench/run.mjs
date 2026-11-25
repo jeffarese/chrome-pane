@@ -30,6 +30,7 @@ const HELP = `node bench/run.mjs [options]
   --runner r         agp or claude (default agp when it is installed)
   --out dir          (default bench/results/<date-time>)
   --port n           the test site's port (default 47811)
+  --latency ms       every answer of the test site comes this late, give or take 30% (default 0)
   --order-seed s     the seed that shuffles the methods within a round
   --no-warmup        skip the unmeasured warm-up run of each method
   --dry-run          print the plan and the first run's command, run nothing
@@ -50,6 +51,7 @@ function parseArgs(argv) {
       case '--runner': o.runner = next(); break;
       case '--out': o.out = next(); break;
       case '--port': o.port = Number(next()); break;
+      case '--latency': o.latency = Number(next()); break;
       case '--order-seed': o.orderSeed = next(); break;
       case '--no-warmup': o.warmup = false; break;
       case '--dry-run': o.dryRun = true; break;
@@ -69,7 +71,7 @@ const runner = opts.runner ?? (spawnSync('which', ['agp']).status === 0 ? 'agp' 
 const stamp = new Date().toISOString().replace(/[:T]/g, '-').slice(0, 19);
 const out = path.resolve(opts.out ?? path.join(root, 'bench/results', stamp));
 
-const server = await startServer({ port: opts.port });
+const server = await startServer({ port: opts.port, latency: opts.latency });
 const { origin } = server;
 
 if (opts.serve) {
@@ -129,7 +131,7 @@ if (opts.dryRun) {
 const meta = {
   startedAt: new Date().toISOString(), host: os.hostname(), platform: `${os.platform()} ${os.release()} ${os.arch()}`, cpus: os.cpus()[0]?.model, node: process.version,
   claude: claudeVersion(), chrome: await chromeVersion(), runner, model: opts.model, effort: opts.effort ?? null,
-  reps: opts.reps, timeoutS: opts.timeout, maxTurns: opts.maxTurns, origin, tasks: tasks.map((t) => ({ id: t.id, category: t.category, title: t.title })), methods: {},
+  reps: opts.reps, latencyMs: opts.latency ?? 0, timeoutS: opts.timeout, maxTurns: opts.maxTurns, origin, tasks: tasks.map((t) => ({ id: t.id, category: t.category, title: t.title })), methods: {},
 };
 console.log(`Benchmark into ${out}\n${meta.claude} · ${meta.chrome ?? 'Chrome version unknown (no chrome-pane bridge)'} · ${opts.model}${opts.effort ? ` (${opts.effort})` : ''} · runner ${runner}`);
 for (const id of [...methods]) {
@@ -170,6 +172,7 @@ async function runOne(method, task, rep, warmup = false) {
   transcript.end();
   if (stderr.trim()) fs.writeFileSync(path.join(out, 'runs', `${id}.err`), stderr);
   const closedTabs = await closeRunTabs(origin);
+  METHODS[method].after?.(ctx);
 
   const m = analyze(lines);
   const check = (() => { try { return task.verify(run, m.reply); } catch (e) { return { pass: false, reason: `check failed: ${e.message}` }; } })();

@@ -89,7 +89,7 @@ or Tern for the split itself.
 
 ## How it compares
 
-Checked in November 2026, with terminal-browser 0.16.1 and Ardia 0.2.48. All of them move
+Checked in November 2026, with terminal-browser 0.16.1 to 0.16.3 and Ardia 0.2.48. All of them move
 fast: look again before you decide.
 
 | | chrome-pane | [terminal-browser](https://github.com/zenbu-labs/terminal-browser) | [Ardia](https://github.com/mantrakp04/ardia) | A browser the agent starts (Playwright, agent-browser) |
@@ -116,6 +116,40 @@ accounts, that is the right tool: it is isolated, and it runs with nobody watchi
 wrong one for the page you are signed in to. Chrome's own DevTools MCP server can attach to
 your running Chrome through the same switch chrome-pane uses; it gives an agent tools, not you
 a pane.
+
+### Measured
+
+One headless Claude Code (Opus 5.5 at low effort) does eight browser tasks with one tool at a
+time, three times each: a form, a search across pages, a report that takes seconds to come, a
+confirm dialog, a long page, a table over three pages, controls made of `<div>`s. The site is a
+made-up shop on the same Mac, and it checks the outcome itself. Medians of a run, on
+25 November 2026:
+
+| | Passed | Time | Input tokens | Model calls | Cost |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| **chrome-pane** | 24/24 | 7.8 s | 22.7 k | 3 | $0.030 |
+| agent-browser 0.44 | 24/24 | 9.8 s | 50.2 k | 4 | $0.039 |
+| terminal-browser 0.16.3 | 24/24 | 11.3 s | 46.5 k | 5 | $0.047 |
+| Claude in Chrome | 23/24 | 24.4 s | 66.1 k | 6 | $0.123 |
+| cua-driver 0.55 | 24/24 | 36.4 s | 255.6 k | 13 | $0.285 |
+
+Read it with these in mind:
+
+- It is 24 runs a tool, and not one sitting. agent-browser ran side by side with chrome-pane
+  (the two rows above). terminal-browser ran with it in Rex, where chrome-pane took 8.6 s.
+  Claude in Chrome and cua ran four hours earlier, beside a chrome-pane that still took
+  11.5 s and 36 k tokens.
+- chrome-pane and Claude in Chrome work in the Chrome that is already running. The other three
+  start a browser of their own in every run, and that start is in their time.
+- Most of the difference is model calls: every one costs about 1.4 s and 6.7 k tokens before
+  the tool has done anything. A chrome-pane action waits for what it started and answers with
+  the outcome, so the agent does not look again. On the report that takes about 4 s to come,
+  chrome-pane is done in 11 s and agent-browser and terminal-browser in 33 to 38 s.
+- The shop answers at once. Made to answer 150 ms late, as a real server does, chrome-pane
+  took 8.7 s, with the same calls and tokens.
+
+[bench/README.md](bench/README.md) has the tasks, what each tool was given, every figure and
+how to run it yourself.
 
 chrome-pane is the one to pick when the browser has to be the Chrome you are signed in to, and
 you want to see it where your agents are. It is not the one for unattended scraping, for an
@@ -297,7 +331,7 @@ filled e12 "Email"
 | `wait <text>` | When it is on the page. Or `--gone <text>`, `--url <part>`, `--idle`; `--timeout <s>`. |
 | `batch` | Several actions, one a line on its input, and one answer. With names in place of refs it goes on from one page to the next. |
 | `shot` | The path of a picture of the view, and what it costs to look at. `--out <new .jpg file>` puts it elsewhere. |
-| `dialog accept\|dismiss` | Answers the page's alert or question. |
+| `dialog accept\|dismiss` | Answers the page's alert or question, and prints what the page did with the answer: the outcome of the action that made it ask. |
 | `eval <js>` | The value. Not among the commands the skill lets an agent run unasked. |
 | `done` | Nothing: the pane's bar stops saying an agent is at work. |
 
@@ -307,8 +341,10 @@ While it does, the pane's bar says what it is doing.
 A ref is a letter and Chrome's own number for the element: it stays good for as long as the
 element lives, and the letter changes with every page loaded, so a ref from an earlier page is
 refused (with the page there is now) instead of landing on something else. A name is looked up
-when the action runs: a name that two controls have is refused, with the list of them and what
-each is under, instead of acting on a guess.
+when the action runs, and waited for a moment if the page does not have it yet. A name that two
+controls have is refused, with the list of them and what each is under, instead of acting on a
+guess; and a click takes a control's whole name ("Delete" is not "Delete account"), while a
+field, a list or a checkbox may be meant by a part of its name.
 
 An action is over when the page has taken it in: the page it loads, the answers it asked the
 network for (a search, a save; for 8 seconds at most) and the changes those make. So what an
@@ -436,7 +472,7 @@ with. In short:
 ```sh
 npm test                 # the input parser, keys, layout, pictures and the agent commands' arguments
 sh test/e2e/run.sh       # the viewer and an agent's commands against a headless Chrome with a throwaway profile
-node bench/run.mjs       # agents doing browser tasks with chrome-pane, Claude in Chrome and cua: time, tokens, failures
+node bench/run.mjs       # agents doing browser tasks with chrome-pane and four other tools: time, tokens, failures
 node bench/micro.mjs     # chrome-pane's commands alone, with no model: how long each takes, how much it prints
 ```
 

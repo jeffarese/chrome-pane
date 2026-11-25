@@ -4,7 +4,7 @@
 // itself costs (its floor under any agent's time) and which commands to make faster or shorter.
 // Run it in a terminal of Herdr, Rex or Tern: it opens a pane there, on your Chrome.
 //
-//   node bench/micro.mjs [--reps 5] [--tasks a,b] [--port 47813] [--out dir]
+//   node bench/micro.mjs [--reps 5] [--tasks a,b] [--port 47813] [--latency ms] [--out dir]
 import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -124,7 +124,7 @@ const FLOWS = {
   },
 };
 
-const server = await startServer({ port: Number(opt('--port', 47813)) });
+const server = await startServer({ port: Number(opt('--port', 47813)), latency: Number(opt('--latency', 0)) });
 const rows = [];
 console.log(`chrome-pane micro-benchmark, ${reps} rounds, into ${out}`);
 for (let rep = 1; rep <= reps; rep++) {
