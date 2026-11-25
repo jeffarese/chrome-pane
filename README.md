@@ -26,7 +26,7 @@
   <a href="#security">Security</a>
 </p>
 
-![A Herdr window. In the middle, Claude Code at work on "Speed up the checkout page". To its right, the Chrome pane: a bar that says "Agent: select e6 Express, next day", and under it the checkout page of a made-up tea shop, drawn as in a browser, with the order's total, a form filled in with a name, an email, an address and a city, the delivery set to Express and a ticked gift-wrap box. The sessions sidebar on the left lists the pane as "Checkout · Acme Shop" with Chrome's icon, among the agents at work](docs/media/preview.png)
+![A Herdr window. In the middle, Claude Code at work on "Speed up the checkout page". To its right, the Chrome pane: its header has back, forward and reload buttons, the number of Chrome's tabs and the page's address in a field, and under it is the checkout page of a made-up tea shop, drawn as in a browser, with the order's total, a form filled in with a name, an email, an address and a city, the delivery set to Express and a ticked gift-wrap box. The sessions sidebar on the left lists the pane as "Checkout · Acme Shop" with Chrome's icon, among the agents at work](docs/media/preview.png)
 
 <p align="center"><sub>In <a href="https://herdr.dev">Herdr</a>, the pane opens beside the agent that asked for it and is listed with the agents. It opens beside the agent in <a href="#see-it-work">Rex and Tern</a> too. The shop, the sessions and the people in these pictures are made up.</sub></p>
 
@@ -60,12 +60,17 @@ and you watch it happen.
 **An agent drives, you watch.** It asks for the page as text, acts on a control by its ref, and
 is told only what changed.
 
-![A shell on the left, the Chrome pane on the right. "chrome-pane open http://acme.test/checkout/" opens the pane with the shop's checkout and prints the page's controls, each with a ref. "chrome-pane fill e2 Sam Rivera" writes the name into the form and prints the one line that changed. "chrome-pane select e6 Express, next day" changes the delivery and the order's total. "chrome-pane click" on Continue to payment prints the page's new message: Still needed: email, address, city](docs/media/demo.gif)
+![A shell on the left, the Chrome pane on the right. "chrome-pane open http://acme.test/checkout/" opens the pane with the shop's checkout and prints the page's controls, each with a ref. The pane's header says what the agent does, "Agent: fill e2 Sam Rivera", where the page's address was. "chrome-pane fill e2 Sam Rivera" writes the name into the form and prints the one line that changed. "chrome-pane select e6 Express, next day" changes the delivery and the order's total. "chrome-pane click" on Continue to payment prints the page's new message: Still needed: email, address, city](docs/media/demo.gif)
 
 **You drive.** It is a browser: click, scroll, type, paste, go back, pick another of Chrome's
 tabs, type an address.
 
-![The Chrome pane alone, showing the shop's checkout. Ctrl+T replaces the page with the list of Chrome's three open tabs; the orders tab is picked and the page "Your orders", signed in as Sam Rivera, is drawn. Ctrl+L turns the bar into "Go to:", an address is entered and the shop's front page is drawn. Alt+Left goes back to the orders](docs/media/tabs.gif)
+![The Chrome pane alone, showing the shop's checkout under a bar with back, forward and reload buttons, the page's address, "3 tabs" and the keys. Ctrl+T replaces the page with the list of Chrome's three open tabs; the orders tab is picked and the page "Your orders", signed in as Sam Rivera, is drawn. Ctrl+L makes the address a field with the address selected, another is entered and the shop's front page is drawn. Alt+Left goes back to the orders](docs/media/tabs.gif)
+
+**In Herdr, the app draws the controls.** The pane's header has the buttons and the address,
+and Chrome's tabs are a list over the window ([how](#in-a-multiplexer)).
+
+![The Herdr window, with Claude Code on the left and the Chrome pane on the right. The pane's header has back, forward and reload buttons, a button with the number of tabs, 3, and the address acme.test/checkout with the page's title. Over the window, a list: a field that says "Find a tab, or type an address" and "3 tabs", then Chrome's three tabs, each with a coloured tile, its title and its address (the shop's front page, "Your orders" and the checkout, which is marked "In this pane"), a row "New tab", and the keys: move, Enter show, Ctrl+D close tab, Esc leave](docs/media/tabs-list.png)
 
 **In Rex and in Tern.** The same commands, typed in a shell of each. The pane opens to the
 right of the shell, in the same tab, and nothing has to be set up for it: chrome-pane asks Rex

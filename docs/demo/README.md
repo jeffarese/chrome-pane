@@ -5,7 +5,7 @@ made-up world, from the `herdr-showcase` kit), with a headless Chrome that has a
 and is served the made-up shop of `site/` as `http://acme.test`.
 
 ```sh
-sh docs/demo/shots.sh          # builds a stage, takes docs/media/preview.png, demo.gif and tabs.gif, takes it all down
+sh docs/demo/shots.sh          # builds a stage, takes docs/media/preview.png, demo.gif, tabs.gif and tabs-list.png, takes it all down
 ```
 
 - `site/` is the shop: a checkout page whose total and messages change as its form does, a
@@ -15,6 +15,10 @@ sh docs/demo/shots.sh          # builds a stage, takes docs/media/preview.png, d
 - `shots.sh [stage]` takes the pictures. The commands in `demo.gif` are typed into a real shell
   and their output is what chrome-pane printed; the keys in `tabs.gif` are pressed in a real
   viewer. `ONLY=tabs` takes one of them.
+- The stage's pane header is the kit's (`pane-head`, from its repository), which draws Chrome's
+  controls with `chrome-bar.js`: `preview.png`, `demo.gif` and `tabs-list.png` show them, and
+  `tabs-list.png` the app's list of tabs. `tabs.gif` runs the viewer with `--bar`, for the bar
+  and the list every other terminal gets.
 
 The pictures of Rex and Tern have no kit: `hosts.sh` builds a smaller stage of its own for
 each, a folder `/tmp/cph.XXXXXX` with a home, the same headless Chrome and shop, and a second

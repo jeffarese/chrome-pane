@@ -12,6 +12,7 @@ import { v_flex, h_flex, InputState, Input, ScrollHandle } from "gpui-base";
 import { exec, theme, props, closeOverlay, checking } from "herdr";
 
 const ROW = 44, SHOWN = 9;
+const TILES = ["#5b8def", "#22a99a", "#e3814f", "#8b7cf6", "#3fae6a", "#d9649a", "#c9a227", "#4aa3c7"];
 
 /** A tab's address as a site and what follows it, as a browser's bar writes it. */
 function parts(url) {
@@ -118,10 +119,10 @@ export default class ChromeTabs extends View {
 
   tile(t, site) {
     const name = bare(site);
-    const colors = [t.ansi4, t.ansi2, t.ansi3, t.ansi5, t.ansi6, t.ansi1];
-    const color = name ? colors[hash(name) % colors.length] : t.dim;
+    // A site keeps its colour: the same in a light theme and a dark one, as a site's own icon is.
+    const color = name ? TILES[hash(name) % TILES.length] : t.dim;
     return h_flex().size(26).flex_none().rounded(7).items_center().justify_center()
-      .bg(color + "2b").text_color(color).text_size(12).font_bold()
+      .bg(color).text_color("#ffffff").text_size(12.5).font_bold()
       .child(([...name][0] ?? "·").toUpperCase());
   }
 

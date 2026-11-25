@@ -6,13 +6,16 @@
 #   sh docs/demo/shots.sh <stage>    on a stage that has the scene; leaves it up
 #
 # docs/media/preview.png   the Herdr window: an agent's terminal and, beside it, the pane with the
-#                          shop's checkout, as the agent fills it in
+#                          shop's checkout, as the agent fills it in. The pane's header draws
+#                          Chrome's controls (the stage's header mod has chrome-bar.js)
 # docs/media/demo.gif      a shell and the pane: open, fill, select and click, each command
 #                          printing what it changed while the page shows it
-# docs/media/tabs.gif      the pane alone, driven from the keyboard: the list of Chrome's tabs,
-#                          another tab, an address typed in, back
+# docs/media/tabs.gif      the pane alone, driven from the keyboard, with the viewer's own bar
+#                          (--bar): the list of Chrome's tabs, another tab, an address typed
+#                          in, back
+# docs/media/tabs-list.png the Herdr window again, with Chrome's tabs in the app's own list
 #
-# ONLY=preview, ONLY=demo or ONLY=tabs takes one of them (or several, with commas).
+# ONLY=preview, ONLY=demo, ONLY=tabs or ONLY=list takes one of them (or several, with commas).
 set -eu
 here=$(cd "$(dirname "$0")" && pwd -P)
 repo=$(cd "$here/../.." && pwd -P)
@@ -30,7 +33,7 @@ fi
 mkdir -p "$repo/docs/media"
 
 say() { printf '%s\n' "shots: $*" >&2; }
-want() { case ",${ONLY:-preview,demo,tabs}," in *",$1,"*) return 0 ;; *) return 1 ;; esac; }
+want() { case ",${ONLY:-preview,demo,tabs,list}," in *",$1,"*) return 0 ;; *) return 1 ;; esac; }
 shoot() { sh "$kit/shoot.sh" "$w" "$@" >/dev/null; }
 # terminal <where>: the stage terminal shown as that, "shop / dev"
 terminal() {
@@ -81,6 +84,18 @@ PY
     -vf "crop=$2,scale=1200:-1:flags=lanczos,split[a][b];[a]palettegen=$3:stats_mode=diff[p];[b][p]paletteuse=dither=none:diff_mode=rectangle" "$1"
 }
 agent() { HC_TERMINAL_ID=$1 "$w/bin/chrome-pane" "$2" ${3+"$3"} ${4+"$4"}; }
+# The Chrome is the scene's own: its tabs are opened and closed straight through its port.
+# Whatever an earlier run left is closed, and the three pages are opened anew, the checkout first.
+three_tabs() {
+  port=$(head -1 "$w/chrome-profile/DevToolsActivePort")
+  /usr/bin/curl -s "http://127.0.0.1:$port/json/list" | /usr/bin/python3 -c 'import json, sys
+for t in json.load(sys.stdin):
+    if t["type"] == "page": print(t["id"])' >"$w/run/old-tabs"
+  for u in http://acme.test/checkout/ http://acme.test/ http://acme.test/orders/; do
+    /usr/bin/curl -s -X PUT "http://127.0.0.1:$port/json/new?$u" >/dev/null
+  done
+  while read -r id; do /usr/bin/curl -s "http://127.0.0.1:$port/json/close/$id" >/dev/null; done <"$w/run/old-tabs"
+}
 # ref <terminal> <text of a snapshot line>: that control's ref in the pane of the terminal's tab
 ref() { agent "$1" snapshot | awk -v want="$2" 'index($0, want) { print $1; exit }'; }
 
@@ -121,18 +136,11 @@ fi
 if want tabs; then
   say "tabs.gif"
   close_panes
-  # The Chrome is the scene's own: its tabs are opened and closed straight through its port.
-  port=$(head -1 "$w/chrome-profile/DevToolsActivePort")
-  # Whatever an earlier run left is closed, and the three pages are opened anew, the checkout first.
-  /usr/bin/curl -s "http://127.0.0.1:$port/json/list" | /usr/bin/python3 -c 'import json, sys
-for t in json.load(sys.stdin):
-    if t["type"] == "page": print(t["id"])' >"$w/run/old-tabs"
-  for u in http://acme.test/checkout/ http://acme.test/ http://acme.test/orders/; do
-    /usr/bin/curl -s -X PUT "http://127.0.0.1:$port/json/new?$u" >/dev/null
-  done
-  while read -r id; do /usr/bin/curl -s "http://127.0.0.1:$port/json/close/$id" >/dev/null; done <"$w/run/old-tabs"
+  three_tabs
   t=$(shell browse)
-  hc send "$t" 'chrome-pane --tab checkout' >/dev/null
+  # --bar: the viewer's own bar and list, as in any terminal, where the stage's header would
+  # draw the controls itself.
+  hc send "$t" 'chrome-pane --bar --tab checkout' >/dev/null
   sleep 4
   film_start
   hc keys "$t" ctrl+t >/dev/null; sleep 1.6
@@ -151,5 +159,23 @@ for t in json.load(sys.stdin):
   hc keys "$t" alt+left >/dev/null; sleep 2.6
   film_end "$repo/docs/media/tabs.gif" "${FILM_CROP:-2400:1300:680:0}" max_colors=128
   hc keys "$t" ctrl+q >/dev/null
+fi
+
+# 4. The first tab again, with nobody acting: the header's controls, and Chrome's tabs in the
+# list the app draws, asked for as Ctrl+T in the pane asks for it.
+if want list; then
+  say "tabs-list.png"
+  close_panes
+  three_tabs
+  herdr-app do tab.select --index 1 >/dev/null
+  t=$(terminal "shop / 1")
+  agent "$t" --pane --tab checkout >/dev/null
+  sleep 5
+  pane=$(hc ls --json --label chrome-pane=1 | /usr/bin/python3 -c 'import json, sys
+print(json.load(sys.stdin)["terminals"][0]["address"])')
+  "$w/bin/chrome-pane" bar --in "$pane" tabs
+  sleep 2.5
+  shoot "$repo/docs/media/tabs-list.png"
+  herdr-app do overlay.close >/dev/null 2>&1 || :
 fi
 say "done"
