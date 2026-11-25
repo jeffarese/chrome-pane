@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Your orders · Acme Shop</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { --ink: #1c2330; --soft: #5b6676; --line: #e3e7ee; --accent: #2f6fed; --bg: #f6f8fb; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.5 -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; color: var(--ink); background: var(--bg); }
+  header { display: flex; align-items: center; gap: 24px; padding: 14px 28px; background: #fff; border-bottom: 1px solid var(--line); }
+  header .logo { font-weight: 700; font-size: 18px; letter-spacing: -0.2px; }
+  header .logo span { color: var(--accent); }
+  header nav { display: flex; gap: 18px; margin-left: auto; align-items: center; }
+  header nav a { color: var(--soft); text-decoration: none; }
+  .me { display: flex; align-items: center; gap: 8px; color: var(--ink); font-size: 14px; }
+  .me i { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-style: normal; font-weight: 700; font-size: 12px; color: #fff; background: #1f7a5c; }
+  main { max-width: 860px; margin: 28px auto; padding: 0 28px; }
+  h1 { font-size: 24px; margin: 0 0 4px; letter-spacing: -0.3px; }
+  p.lead { color: var(--soft); margin: 0 0 18px; }
+  table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; font-size: 14px; }
+  th, td { text-align: left; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+  th { color: var(--soft); font-weight: 600; font-size: 13px; background: #fbfcfe; }
+  tr:last-child td { border-bottom: 0; }
+  td:last-child, th:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+  .tag { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+  .tag.way { color: #8a5a00; background: #fdf1d6; }
+  .tag.done { color: #18794e; background: #dff5ea; }
+  .tag.back { color: #a3323a; background: #fde3e5; }
+  @media (max-width: 720px) { .wide { display: none; } main { padding: 0 18px; } }
+</style>
+<header>
+  <div class="logo">acme<span>.</span>shop</div>
+  <nav aria-label="Shop"><a href="../">Tea</a><a href="#">Teaware</a><a href="#">Gifts</a><a href="../checkout/">Cart (2)</a>
+    <span class="me"><i>SR</i>Sam Rivera</span></nav>
+</header>
+<main>
+  <h1>Your orders</h1>
+  <p class="lead">Signed in as sam@acme.test. Four orders this year.</p>
+  <table>
+    <thead><tr><th>Order</th><th>Date</th><th class="wide">Items</th><th>Status</th><th>Total</th></tr></thead>
+    <tbody>
+      <tr><td><a href="#">A-10482</a></td><td>12 May</td><td class="wide">Sencha, 100 g · Cast iron teapot</td><td><span class="tag way">On its way</span></td><td>€61.00</td></tr>
+      <tr><td><a href="#">A-10317</a></td><td>3 April</td><td class="wide">Hojicha, 80 g × 2</td><td><span class="tag done">Delivered</span></td><td>€25.50</td></tr>
+      <tr><td><a href="#">A-10140</a></td><td>18 February</td><td class="wide">Porcelain cups, set of 4</td><td><span class="tag back">Returned</span></td><td>€24.00</td></tr>
+      <tr><td><a href="#">A-10033</a></td><td>9 January</td><td class="wide">Genmaicha, 100 g · Tea scoop</td><td><span class="tag done">Delivered</span></td><td>€19.00</td></tr>
+    </tbody>
+  </table>
+</main>

@@ -1,33 +1,118 @@
-# chrome-pane
+<p align="center">
+  <img src="docs/media/logo.png" width="132" alt="chrome-pane's logo: a rounded square split in two, a terminal prompt on the dark half and a mouse pointer on the half that goes from cyan to violet">
+</p>
 
-Your own Chrome in a terminal pane: the tabs, logins and cookies you already have, not a second
-browser. You see the page and use it with the mouse and the keyboard; the agent working beside
-you drives the same tab with short text commands, and you watch it happen.
+<h1 align="center">chrome-pane</h1>
+
+<p align="center">
+  <b>Your own Chrome in a terminal pane.</b><br>
+  The tabs and logins you already have, beside the agent that needs them.
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/license-MIT-22d3ee" alt="MIT license">
+  <img src="https://img.shields.io/badge/node-%E2%89%A5%2022-3b82f6" alt="Node 22 or newer">
+  <img src="https://img.shields.io/badge/dependencies-0-8b5cf6" alt="No dependencies">
+  <img src="https://img.shields.io/badge/platform-macOS-64748b" alt="macOS">
+  <img src="https://img.shields.io/badge/terminals-Herdr%20%C2%B7%20Ghostty%20%C2%B7%20kitty-64748b" alt="Herdr, Ghostty, kitty">
+</p>
+
+<p align="center">
+  <a href="#what-it-is-for">What it is for</a> ·
+  <a href="#see-it-work">See it work</a> ·
+  <a href="#how-it-compares">How it compares</a> ·
+  <a href="#install">Install</a> ·
+  <a href="#for-agents">For agents</a> ·
+  <a href="#security">Security</a>
+</p>
 
 ![A Herdr window. In the middle, Claude Code at work on "Speed up the checkout page". To its right, the Chrome pane: a bar that says "Agent: select e6 Express, next day", and under it the checkout page of a made-up tea shop, drawn as in a browser, with the order's total, a form filled in with a name, an email, an address and a city, the delivery set to Express and a ticked gift-wrap box. The sessions sidebar on the left lists the pane as "Checkout · Acme Shop" with Chrome's icon, among the agents at work](docs/media/preview.png)
 
-*In [Herdr](https://herdr.dev), the pane opens beside the agent that asked for it and is listed
-with the agents. The shop, the sessions and the people in this picture are made up.*
+<p align="center"><sub>In <a href="https://herdr.dev">Herdr</a>, the pane opens beside the agent that asked for it and is listed with the agents. The shop, the sessions and the people in these pictures are made up.</sub></p>
 
-Terminal browsers and agent browsers start a browser of their own: empty, signed in to nothing.
-The page you want an agent's help with is usually behind a login you already have. chrome-pane
-connects to the Chrome you use, through the remote debugging Chrome itself offers and asks you
-to allow, and shows one of its tabs where you and your agents already are.
+The page you want an agent's help with is usually behind a login you already have: the admin
+panel, the cloud console, the ticket, the order you are in the middle of. Terminal browsers and
+agent browsers start a browser of their own, signed in to nothing. chrome-pane connects to the
+Chrome you use, through the remote debugging Chrome itself offers and asks you to allow, and
+shows one of its tabs where you and your agents already are. You see the page and use it with
+the mouse and the keyboard; the agent beside you drives the same tab with short text commands,
+and you watch it happen.
 
-## Highlights
+## What it is for
 
-- **Your real Chrome.** No copied profile, no exported cookies, no extension. Chrome asks you
-  once per start whether to allow the connection.
-- **A browser in the pane.** The page is drawn pixel for pixel with the kitty graphics protocol.
-  Click, scroll, type, paste, go back, pick another tab, type an address.
-- **Agents read text, not pictures.** `chrome-pane snapshot` is the page's controls as a few
-  lines, each with a ref. An action answers with only what changed. No screenshot per step.
-- **You stay in charge.** The pane's bar says what an agent is doing while it does it. Your
-  mouse and keys work at all times. The agent commands refuse to type into password, code and
-  card fields, and open only web addresses.
-- **From another computer.** Sit at one computer and watch a tab of the Chrome on another,
-  through Herdr: the viewer sends only the cells of the picture that changed.
-- **Nothing to build.** Node and nothing else: no dependencies, no browser download.
+- **Work on a page behind your login.** The agent acts on the tab where you are signed in. No
+  password handed over, no cookies exported, no second sign-in, no second factor to pass again.
+- **Do a chore together.** You sign in and get past the captcha, the agent fills in the forty
+  rows, you look it over and press the last button. The pane's bar says what the agent is doing
+  while it does it, and your mouse and keys work at all times.
+- **See what the agent built.** It opens `localhost:3000` beside itself and clicks through the
+  flow it just changed. You watch the page instead of reading a report about it.
+- **Give an agent a page to read.** `read`, `find` and `read --table` hand over a page's text, a
+  match or a table for a few hundred tokens: the docs behind your company's sign-in, a
+  dashboard, a list of orders.
+- **Stay in the terminal.** A reference page, a pull request or a build's log next to the code,
+  in a split, without moving to another window.
+- **Use the Chrome of another computer.** Chrome runs on the desktop under the desk; you sit at
+  the laptop, where Herdr shows the desktop's sessions. The pane comes along with them.
+
+## See it work
+
+**An agent drives, you watch.** It asks for the page as text, acts on a control by its ref, and
+is told only what changed.
+
+![A shell on the left, the Chrome pane on the right. "chrome-pane open http://acme.test/checkout/" opens the pane with the shop's checkout and prints the page's controls, each with a ref. "chrome-pane fill e2 Sam Rivera" writes the name into the form and prints the one line that changed. "chrome-pane select e6 Express, next day" changes the delivery and the order's total. "chrome-pane click" on Continue to payment prints the page's new message: Still needed: email, address, city](docs/media/demo.gif)
+
+**You drive.** It is a browser: click, scroll, type, paste, go back, pick another of Chrome's
+tabs, type an address.
+
+![The Chrome pane alone, showing the shop's checkout. Ctrl+T replaces the page with the list of Chrome's three open tabs; the orders tab is picked and the page "Your orders", signed in as Sam Rivera, is drawn. Ctrl+L turns the bar into "Go to:", an address is entered and the shop's front page is drawn. Alt+Left goes back to the orders](docs/media/tabs.gif)
+
+## Why chrome-pane
+
+| | |
+| --- | --- |
+| **Your real Chrome** | No copied profile, no exported cookies, no extension. Chrome asks you once per start whether to allow the connection. |
+| **A browser in the pane** | The page is drawn pixel for pixel with the kitty graphics protocol, at the pane's size, and follows it when you resize. |
+| **Agents read text, not pictures** | `chrome-pane snapshot` is the page's controls as a few lines, each with a ref. An action answers with only what changed. On the checkout above, the whole page is 710 characters and filling a field answers with 61; a picture of the same view costs an agent about 6,000 tokens. |
+| **You stay in charge** | The pane's bar says what an agent is doing while it does it. The agent commands refuse to type into password, code and card fields, and open only web addresses. |
+| **Made for Herdr** | The pane opens to the right of the agent that asked for it, in the same tab, and is listed with the agents under the page's title. Outside Herdr it is a program for any terminal that draws kitty graphics. |
+| **From another computer** | The viewer sends only the cells of the picture that changed, at the pace each screen takes them. |
+| **Nothing to build** | Node and nothing else: no dependencies, no browser download, no extension. |
+
+## How it compares
+
+Checked in November 2026, with terminal-browser 0.16.1 and Ardia 0.2.48. All of them move
+fast: look again before you decide.
+
+| | chrome-pane | [terminal-browser](https://github.com/zenbu-labs/terminal-browser) | [Ardia](https://github.com/mantrakp04/ardia) | A browser the agent starts (Playwright, agent-browser) |
+| --- | --- | --- | --- | --- |
+| **The browser** | The Chrome you already use | Its own, built on Electron | Its own: a Chromium browser for the Mac | Its own |
+| **Your logins** | Already there | Sign in again in its profile. Importing Chrome's is proposed, not merged ([#57](https://github.com/zenbu-labs/terminal-browser/pull/57), [#63](https://github.com/zenbu-labs/terminal-browser/pull/63), [#237](https://github.com/zenbu-labs/terminal-browser/pull/237)) | Ardia's: yours if Ardia is your daily browser | None, until you sign in again or bring cookies over |
+| **Where you see the page** | A terminal pane | A terminal pane | Ardia's window | Often nowhere: headless |
+| **In Herdr** | A pane of the agent's tab, listed with the agents | The page area stays blank ([#291](https://github.com/zenbu-labs/terminal-browser/issues/291)) | A window outside Herdr | No pane |
+| **From another computer** | Yes, with the terminal | Not tried | No | It runs there, unseen |
+| **What an agent runs** | `chrome-pane click e12`: text in, a few lines out | agent-browser's commands | agent-browser's commands, as `ardia browse` | Its own tools; many answer with a screenshot or the whole page each step |
+| **What it installs** | A link to a Node script | An Electron app | A Mac app | A browser download |
+
+**Why not terminal-browser?** It is the same idea, a real browser in a terminal pane, and the
+better choice when you want a browser that stands on its own. It is a browser of its own,
+though: every site asks you to sign in again. And in the Herdr app its page stayed blank, and
+it took the pane for Ghostty.
+
+**Why not Ardia?** If Ardia is the browser you live in, its `ardia browse` already gives agents
+your tabs and logins, and you don't need this. It is a window of its own, on the Mac you sit
+at: not a pane beside the agent, and not something another computer's terminal can show.
+
+**Why not a browser the agent starts?** For a public page, or work that should not touch your
+accounts, that is the right tool: it is isolated, and it runs with nobody watching. It is the
+wrong one for the page you are signed in to. Chrome's own DevTools MCP server can attach to
+your running Chrome through the same switch chrome-pane uses; it gives an agent tools, not you
+a pane.
+
+chrome-pane is the one to pick when the browser has to be the Chrome you are signed in to, and
+you want to see it where your agents are. It is not the one for unattended scraping, for an
+agent you would not trust in your accounts ([Security](#security)), for video and sound, or
+for Windows.
 
 ## What you need
 
@@ -87,9 +172,7 @@ click on the address edits it. `chrome-pane --help` lists the options.
 
 An agent does not look at the picture. It asks for the page as text, acts on a control by its
 ref, and is told only what changed, while you watch the same tab in the pane and can take over
-at any moment.
-
-![A shell on the left, the Chrome pane on the right. "chrome-pane open http://acme.test/checkout/" opens the pane with the shop's checkout and prints the page's controls, each with a ref. "chrome-pane fill e2 Sam Rivera" writes the name into the form and prints the one line that changed. "chrome-pane select e6 Express, next day" changes the delivery and the order's total. "chrome-pane click" on Continue to payment prints the page's new message: Still needed: email, address, city](docs/media/demo.gif)
+at any moment ([the film above](#see-it-work)).
 
 ```sh
 chrome-pane open example.com/login   # opens the pane if this Herdr tab has none; prints the page
@@ -161,7 +244,12 @@ On the computer you watch from, only Herdr's name and icon for the pane are need
 app that draws the window decides them): clone this there and run `bin/chrome-pane herdr`.
 
 What travels is pictures, through Herdr's connection, so the viewer sends as little of them as
-it can:
+it can: only what changed, half the pixels while the whole page moves, no more than each screen
+has taken, and again when a picture went missing.
+
+<details>
+<summary>How, in detail</summary>
+<br>
 
 - **Only what changed.** Chrome hands over every frame whole. The viewer compares it with what
   is on screen and sends the cells that differ as a small picture laid over the big one: a row
@@ -185,6 +273,8 @@ it can:
 A frame equal to the last one is not sent. When Chrome's window is on a screen of one pixel a
 point, full size has no more pixels than half, and the picture stays as soft as that screen is.
 
+</details>
+
 ## Security
 
 The connection chrome-pane holds can read and drive every tab of the Chrome you are signed in
@@ -202,10 +292,7 @@ with. In short:
 
 ## How it works
 
-```
- Chrome ◀─ one DevTools connection ─▶ bridge ◀─ unix socket ─▶ viewer ◀─ terminal ─▶ you
-                                      (per machine)             (one per pane)
-```
+![Your Chrome, with the tabs and logins you already have, asks you before it allows one DevTools connection to the bridge. The bridge holds that connection for your user only and shares it over a unix socket with two kinds of program. A viewer, one for each pane, draws the page in the terminal: pictures go to you, your mouse and keys come back, here or on another Mac. The agent commands, one process each, give your agent a few lines of text for each command. The pane's bar says what the agent does](docs/media/how-it-works.svg)
 
 - **Bridge** (`src/bridge.mjs`). Holds the one connection Chrome approved and shares it: viewers
   send DevTools messages over `~/.local/state/chrome-pane/bridge.sock` (your user only). A viewer
@@ -257,10 +344,12 @@ yours.
 `CHROME_PANE_DEBUG=<file>` makes it write everything it receives, **every key typed included**:
 for a test page only.
 
-`docs/demo` has the made-up shop and the scripts behind the pictures above.
+`docs/demo` has the made-up shop and the scripts behind the pictures and films above.
 
 ## License
 
 [MIT](LICENSE). Chrome is a trademark of Google LLC; chrome-pane is not affiliated with or
 endorsed by Google. The pane's icon in Herdr is taken from the Chrome installed on your
-computer: this repository carries none of Google's artwork.
+computer: this repository carries none of Google's artwork. chrome-pane's own logo was made
+for it with OpenAI's image generation. terminal-browser, Ardia, Playwright and agent-browser
+belong to their authors and are named here only to compare.

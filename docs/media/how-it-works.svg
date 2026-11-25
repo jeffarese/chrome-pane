@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 520" width="1200" height="520" role="img" aria-labelledby="t d" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <title id="t">How chrome-pane is put together</title>
+  <desc id="d">Your Chrome talks to the bridge over the one DevTools connection you approved. The bridge shares it over a unix socket with a viewer for each pane, which draws the page in the terminal for you, and with the agent commands, which give your agent the page as text.</desc>
+  <defs>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#22d3ee"/>
+      <stop offset="1" stop-color="#8b5cf6"/>
+    </linearGradient>
+    <marker id="head" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 10 5 0 10z" fill="#7285ab"/>
+    </marker>
+  </defs>
+  <rect x="1" y="1" width="1198" height="518" rx="22" fill="#0b1020" stroke="#1e2942" stroke-width="2"/>
+
+  <!-- the links -->
+  <g fill="none" stroke="#7285ab" stroke-width="2" marker-start="url(#head)" marker-end="url(#head)">
+    <path d="M276 260H358"/>
+    <path d="M556 232C600 232 604 142 668 142"/>
+    <path d="M556 288C600 288 604 378 668 378"/>
+    <path d="M896 142H968"/>
+    <path d="M896 378H968"/>
+  </g>
+  <path d="M780 212V308" fill="none" stroke="#7285ab" stroke-width="2" stroke-dasharray="5 6"/>
+
+  <g font-size="13" fill="#93a4c6" text-anchor="middle">
+    <text x="317" y="238">one DevTools</text>
+    <text x="317" y="292">connection</text>
+    <text x="588" y="142">unix socket</text>
+    <text x="588" y="394">unix socket</text>
+    <text x="932" y="126">pictures</text>
+    <text x="932" y="166">mouse, keys</text>
+    <text x="932" y="362">a few lines</text>
+    <text x="932" y="402">a command</text>
+    <text x="792" y="256" text-anchor="start">the pane's bar says</text>
+    <text x="792" y="274" text-anchor="start">what the agent does</text>
+  </g>
+
+  <!-- the parts -->
+  <g fill="#121a33" stroke="#2a3760" stroke-width="2">
+    <rect x="48" y="180" width="224" height="160" rx="16"/>
+    <rect x="668" y="72" width="224" height="140" rx="16"/>
+    <rect x="668" y="308" width="224" height="140" rx="16"/>
+    <rect x="972" y="72" width="180" height="140" rx="16"/>
+    <rect x="972" y="308" width="180" height="140" rx="16"/>
+  </g>
+  <rect x="362" y="190" width="190" height="140" rx="16" fill="#121a33" stroke="url(#accent)" stroke-width="3"/>
+
+  <g fill="#eef3fb" font-size="20" font-weight="700" text-anchor="middle">
+    <text x="160" y="232">Your Chrome</text>
+    <text x="457" y="240">bridge</text>
+    <text x="780" y="120">viewer</text>
+    <text x="780" y="356">agent commands</text>
+    <text x="1062" y="120">You</text>
+    <text x="1062" y="356">Your agent</text>
+  </g>
+  <g fill="#a9b8d6" font-size="14" text-anchor="middle">
+    <text x="160" y="262">the tabs and logins</text>
+    <text x="160" y="282">you already have</text>
+    <text x="160" y="312" fill="#7dd3fc">asks you before it allows</text>
+    <text x="457" y="268">holds the connection</text>
+    <text x="457" y="288">Chrome approved,</text>
+    <text x="457" y="308">for your user only</text>
+    <text x="780" y="148">one for each pane:</text>
+    <text x="780" y="168">draws the page in</text>
+    <text x="780" y="188">the terminal</text>
+    <text x="780" y="384">one process each:</text>
+    <text x="780" y="404" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="13">snapshot · click · fill</text>
+    <text x="780" y="424">text in, text out</text>
+    <text x="1062" y="148">see the page,</text>
+    <text x="1062" y="168">click, scroll, type,</text>
+    <text x="1062" y="188">here or on another Mac</text>
+    <text x="1062" y="384">reads the controls,</text>
+    <text x="1062" y="404">acts on one by its ref,</text>
+    <text x="1062" y="424">is told what changed</text>
+  </g>
+</svg>

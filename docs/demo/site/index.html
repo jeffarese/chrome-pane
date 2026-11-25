@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Acme Shop · Tea, teaware and gifts</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { --ink: #1c2330; --soft: #5b6676; --line: #e3e7ee; --accent: #2f6fed; --bg: #f6f8fb; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.5 -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; color: var(--ink); background: var(--bg); }
+  header { display: flex; align-items: center; gap: 24px; padding: 14px 28px; background: #fff; border-bottom: 1px solid var(--line); }
+  header .logo { font-weight: 700; font-size: 18px; letter-spacing: -0.2px; }
+  header .logo span { color: var(--accent); }
+  header nav { display: flex; gap: 18px; margin-left: auto; }
+  header nav a { color: var(--soft); text-decoration: none; }
+  main { max-width: 860px; margin: 28px auto; padding: 0 28px; }
+  .hero { padding: 34px 32px; border-radius: 16px; color: #fff; background: linear-gradient(120deg, #1f7a5c, #2f6fed); }
+  .hero h1 { font-size: 30px; line-height: 1.2; margin: 0 0 8px; letter-spacing: -0.4px; }
+  .hero p { margin: 0 0 18px; opacity: 0.9; max-width: 46ch; }
+  .hero a { display: inline-block; font-weight: 600; padding: 10px 16px; border-radius: 8px; color: var(--ink); background: #fff; text-decoration: none; }
+  h2 { font-size: 17px; margin: 28px 0 12px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 16px; }
+  .card { display: block; background: #fff; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; color: inherit; text-decoration: none; }
+  .card i { display: block; height: 110px; }
+  .card div { padding: 12px 14px 14px; }
+  .card b { display: block; }
+  .card span { color: var(--soft); font-size: 14px; font-variant-numeric: tabular-nums; }
+</style>
+<header>
+  <div class="logo">acme<span>.</span>shop</div>
+  <nav aria-label="Shop"><a href="#">Tea</a><a href="#">Teaware</a><a href="#">Gifts</a><a href="orders/">Orders</a><a href="checkout/">Cart (2)</a></nav>
+</header>
+<main>
+  <section class="hero">
+    <h1>This spring's first flush is in</h1>
+    <p>Picked in April, packed in Lisbon, at your door in three days.</p>
+    <a href="checkout/">Go to checkout</a>
+  </section>
+  <h2>Back in stock</h2>
+  <div class="grid">
+    <a class="card" href="#"><i style="background: linear-gradient(135deg, #cfe8c4, #7fb77e)"></i><div><b>Sencha, 100 g</b><span>€12.00</span></div></a>
+    <a class="card" href="#"><i style="background: linear-gradient(135deg, #3a3f4b, #151a23)"></i><div><b>Cast iron teapot</b><span>€38.00</span></div></a>
+    <a class="card" href="#"><i style="background: linear-gradient(135deg, #f3d9a4, #d99a4e)"></i><div><b>Hojicha, 80 g</b><span>€10.50</span></div></a>
+    <a class="card" href="#"><i style="background: linear-gradient(135deg, #e6ecf5, #a9b9d6)"></i><div><b>Porcelain cups, set of 4</b><span>€24.00</span></div></a>
+  </div>
+</main>
