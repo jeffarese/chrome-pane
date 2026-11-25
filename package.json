@@ -9,7 +9,7 @@
     "type": "git",
     "url": "git+https://github.com/jeffarese/chrome-pane.git"
   },
-  "keywords": ["chrome", "terminal", "kitty-graphics", "devtools-protocol", "herdr", "ai-agents", "browser-automation"],
+  "keywords": ["chrome", "terminal", "kitty-graphics", "devtools-protocol", "herdr", "rex", "tern", "ai-agents", "browser-automation"],
   "bin": { "chrome-pane": "bin/chrome-pane" },
   "engines": { "node": ">=22" },
   "scripts": {

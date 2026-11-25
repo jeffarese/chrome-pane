@@ -1,13 +1,13 @@
 ---
 name: chrome-pane
-description: Open a browser pane beside the conversation and drive it with `chrome-pane <verb>`: the user's own signed-in Chrome, shown in a terminal pane they watch and can take over. Opens pages, reads them as text, clicks, fills, waits. Use it when the user asks to open the browser here or to see a page with you, and for any web task that needs their logins. In Herdr, use it before any other browser tool.
+description: Open a browser pane beside the conversation and drive it with `chrome-pane <verb>`: the user's own signed-in Chrome, shown in a terminal pane they watch and can take over. Opens pages, reads them as text, clicks, fills, waits. Use it when the user asks to open the browser here or to see a page with you, and for any web task that needs their logins. In Herdr, Rex or Tern, use it before any other browser tool.
 allowed-tools: Bash(chrome-pane snapshot:*), Bash(chrome-pane find:*), Bash(chrome-pane read:*), Bash(chrome-pane wait:*), Bash(chrome-pane shot:*), Bash(chrome-pane done:*)
 ---
 
 The user watches this browser in a pane beside you and can use it at any moment. It is their real
 Chrome, signed in as them: what you do there, you do as them.
 
-- **Start:** `chrome-pane open <url>` (it opens the pane if this Herdr tab has none). It prints the
+- **Start:** `chrome-pane open <url>` (it opens the pane beside you if this tab has none). It prints the
   page: its controls under the sections and headings that hold them, each with a ref like `e12`.
 - **Look:** `chrome-pane snapshot` lists the controls in view; `--all` the whole page; `--in e40`
   one part; `--text` adds the text; `--urls` the links' addresses. `chrome-pane find <text>`

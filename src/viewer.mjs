@@ -2,7 +2,7 @@
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import { connect } from './cdp.mjs';
-import { whereAmI } from './herdr.mjs';
+import { hostOf } from './hosts.mjs';
 import { InputParser } from './input.mjs';
 import { keyCalls } from './keys.mjs';
 import { notesDir, readAsk, readNote, registerPane, unregisterPane, writeAsk } from './panes.mjs';
@@ -34,7 +34,7 @@ export class Viewer {
     this.message = 'Connecting to Chrome…';
     this.editing = null;         // the address being typed, or null
     this.tab = null;             // { targetId, sid, title, url }
-    this.where = {};             // the Herdr space, tab and terminal this runs in, if any
+    this.where = {};             // the multiplexer's terminal this runs in, and what it says of its tab, if any
     this.agent = null;           // what an agent is doing to the tab right now, for the bar
     this.geom = null;
     // auto: half the pixels while the page moves, the sharp picture once it rests.
@@ -133,8 +133,8 @@ export class Viewer {
     for (const stream of [this.inp, this.out]) stream.on('error', () => this.quit());
     for (const ev of ['end', 'close']) this.inp.on(ev, () => this.quit());
     process.on('exit', () => { unregisterPane(); this.restore(); });
-    // An agent's command finds the tab to act on by the pane of its own Herdr tab.
-    try { this.where = whereAmI(); } catch { if (process.env.HC_TERMINAL_ID) this.where = { terminal: process.env.HC_TERMINAL_ID }; }
+    // An agent's command finds the tab to act on by the pane of its own tab of Herdr, Rex or Tern.
+    try { this.where = hostOf()?.where(process.env) ?? {}; } catch {}
     // Known from the start, before it shows a tab: an agent asking for a page then asks this
     // pane, and does not open a second one beside it.
     this.announce();
@@ -156,6 +156,9 @@ export class Viewer {
     await this.cdp.send('Target.setDiscoverTargets', { discover: true });
     setInterval(() => this.refreshInfo(), 2000).unref();
     setInterval(() => this.check(), 3000).unref();
+    // A multiplexer makes a cell size up for a pane no window shows, and need not say when a
+    // window then gives it a real one (the columns and rows may stay the same): asked again.
+    setInterval(() => this.w('\x1b[16t'), 3000).unref();
     await this.begin();
   }
 
@@ -864,7 +867,8 @@ export class Viewer {
   }
 
   onReply(ev) {
-    if (ev.kind === 'cell' && ev.w > 0 && ev.h > 0 && (ev.w !== this.term.cellW || ev.h !== this.term.cellH)) {
+    // A pane no window shows yet has no cell size to tell: Tern answers 1x1 until one does.
+    if (ev.kind === 'cell' && ev.w >= 3 && ev.h >= 6 && (ev.w !== this.term.cellW || ev.h !== this.term.cellH)) {
       this.term.cellW = ev.w; this.term.cellH = ev.h;
       this.debug?.('cell', ev.w, ev.h);
       if (!this.measured && this.mode === 'page') this.cast();

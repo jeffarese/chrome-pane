@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- In Rex and Tern, as in Herdr: an agent's `chrome-pane open` (or `--pane`) opens the viewer as
+  a pane beside the caller, in the same tab, and later commands from that tab use it. Each
+  multiplexer is asked in its own words (`rex split`, `tern split`, `hc run`), through one
+  adapter each in `src/hosts.mjs`. `CHROME_PANE_HOST` says which one when a terminal is inside
+  two.
+
 ## 0.1.0
 
 First release.

@@ -14,7 +14,7 @@
   <img src="https://img.shields.io/badge/node-%E2%89%A5%2022-3b82f6" alt="Node 22 or newer">
   <img src="https://img.shields.io/badge/dependencies-0-8b5cf6" alt="No dependencies">
   <img src="https://img.shields.io/badge/platform-macOS-64748b" alt="macOS">
-  <img src="https://img.shields.io/badge/terminals-Herdr%20%C2%B7%20Ghostty%20%C2%B7%20kitty-64748b" alt="Herdr, Ghostty, kitty">
+  <img src="https://img.shields.io/badge/terminals-Herdr%20%C2%B7%20Rex%20%C2%B7%20Tern%20%C2%B7%20Ghostty%20%C2%B7%20kitty-64748b" alt="Herdr, Rex, Tern, Ghostty, kitty">
 </p>
 
 <p align="center">
@@ -28,7 +28,7 @@
 
 ![A Herdr window. In the middle, Claude Code at work on "Speed up the checkout page". To its right, the Chrome pane: a bar that says "Agent: select e6 Express, next day", and under it the checkout page of a made-up tea shop, drawn as in a browser, with the order's total, a form filled in with a name, an email, an address and a city, the delivery set to Express and a ticked gift-wrap box. The sessions sidebar on the left lists the pane as "Checkout · Acme Shop" with Chrome's icon, among the agents at work](docs/media/preview.png)
 
-<p align="center"><sub>In <a href="https://herdr.dev">Herdr</a>, the pane opens beside the agent that asked for it and is listed with the agents. The shop, the sessions and the people in these pictures are made up.</sub></p>
+<p align="center"><sub>In <a href="https://herdr.dev">Herdr</a>, the pane opens beside the agent that asked for it and is listed with the agents. It opens beside the agent in Rex and Tern too. The shop, the sessions and the people in these pictures are made up.</sub></p>
 
 The page you want an agent's help with is usually behind a login you already have: the admin
 panel, the cloud console, the ticket, the order you are in the middle of. Terminal browsers and
@@ -75,7 +75,7 @@ tabs, type an address.
 | **A browser in the pane** | The page is drawn pixel for pixel with the kitty graphics protocol, at the pane's size, and follows it when you resize. |
 | **Agents read text, not pictures** | `chrome-pane snapshot` is the page's controls as a few lines, each with a ref. An action answers with only what changed. On the checkout above, the whole page is 710 characters and filling a field answers with 61; a picture of the same view costs an agent about 6,000 tokens. |
 | **You stay in charge** | The pane's bar says what an agent is doing while it does it. The agent commands refuse to type into password, code and card fields, and open only web addresses. |
-| **Made for Herdr** | The pane opens to the right of the agent that asked for it, in the same tab, and is listed with the agents under the page's title. Outside Herdr it is a program for any terminal that draws kitty graphics. |
+| **At home in your multiplexer** | In Herdr, Rex and Tern the pane opens to the right of the agent that asked for it, in the same tab, under the page's title, and leaves the keyboard with the agent. Each one is asked in its own words ([how](#in-a-multiplexer)). Anywhere else it is a program for any terminal that draws kitty graphics. |
 | **From another computer** | The viewer sends only the cells of the picture that changed, at the pace each screen takes them. |
 | **Nothing to build** | Node and nothing else: no dependencies, no browser download, no extension. |
 
@@ -120,7 +120,7 @@ for Windows.
   `chrome://inspect/#remote-debugging`).
 - **Node 22 or newer.**
 - **A terminal that draws pictures with the kitty graphics protocol** and reports the mouse in
-  pixels: [Herdr](https://herdr.dev), Ghostty, kitty.
+  pixels: [Herdr](https://herdr.dev), Rex, Tern, Ghostty, kitty.
 - macOS. On Linux the unit tests pass and the browsers' folders are known, but it has not been
   used there yet. Windows is not supported.
 
@@ -151,7 +151,7 @@ chrome-pane tabs                 # list the tabs
 | Where you run it | What happens |
 | --- | --- |
 | In a terminal | The tab is shown in that terminal. |
-| From a program with no terminal (an agent) inside Herdr, or with `--pane` | It opens as a new pane, to the right, of the Herdr tab it was called from. |
+| From a program with no terminal (an agent) inside Herdr, Rex or Tern, or with `--pane` | It opens as a new pane, to the right, of the tab it was called from. |
 
 | Key | |
 | --- | --- |
@@ -168,6 +168,26 @@ the page opens (a sign-in, a link in a new tab) is shown in its place, and the p
 the page when that window closes. The bar's `‹`, `›` and `↻` take clicks, and a
 click on the address edits it. `chrome-pane --help` lists the options.
 
+### In a multiplexer
+
+In a terminal with panes, chrome-pane opens its own: beside whoever asked, in the same tab, and
+it asks the multiplexer in its own words. A pane an agent opens leaves the keyboard with the
+agent. A later command from that tab finds the pane through the multiplexer and uses it instead
+of opening a second one.
+
+| | How the pane opens | What it uses |
+| --- | --- | --- |
+| **[Herdr](https://herdr.dev)** | `hc run`, with the space and tab of the terminal that asked | The pane is listed with the agents as Chrome, with the page's title and its own icon, and shows on every computer looking at that tab. |
+| **Rex** | `rex split`, to the right of the block that asked | The block is labelled Chrome, shows the page's title and tells Rex its program is `chrome`. It closes when the viewer quits. `--pane` typed by you gets the keyboard. |
+| **Tern** | `tern split`, to the right of the block that asked | The block's title is the page's. It closes when the viewer quits. `--pane` typed by you gets the keyboard. |
+
+Which one it is in, chrome-pane reads from what each gives its terminals (`HC_TERMINAL_ID`,
+`REX_BLOCK`, `TERN_PANE`). With one inside another, the terminal's own `TERM_PROGRAM` decides;
+`CHROME_PANE_HOST=herdr|rex|tern` says it yourself, and `none` never opens a pane.
+
+In any other terminal that draws kitty graphics (Ghostty, kitty), run `chrome-pane` in the
+split you want it in.
+
 ## For agents
 
 An agent does not look at the picture. It asks for the page as text, acts on a control by its
@@ -175,7 +195,7 @@ ref, and is told only what changed, while you watch the same tab in the pane and
 at any moment ([the film above](#see-it-work)).
 
 ```sh
-chrome-pane open example.com/login   # opens the pane if this Herdr tab has none; prints the page
+chrome-pane open example.com/login   # opens the pane if this tab has none; prints the page
 ```
 
 ```
@@ -213,8 +233,8 @@ filled e12 "Email"
 | `eval <js>` | The value. Not among the commands the skill lets an agent run unasked. |
 | `done` | Nothing: the pane's bar stops saying an agent is at work. |
 
-An agent's command acts on the tab shown by the pane of the Herdr tab it runs in. While it does,
-the pane's bar says what it is doing.
+An agent's command acts on the tab shown by the pane of the Herdr, Rex or Tern tab it runs in.
+While it does, the pane's bar says what it is doing.
 
 A ref is a letter and Chrome's own number for the element: it stays good for as long as the
 element lives, and the letter changes with every page loaded, so a ref from an earlier page is
@@ -300,11 +320,13 @@ with. In short:
   gives the tab its own size back.
 - **Viewer** (`src/viewer.mjs`). Asks Chrome for a screencast of the tab, sized to the pane, and
   draws each frame with the kitty graphics protocol. Mouse reports and keys from the terminal
-  become DevTools input events. It reports itself to Herdr as `chrome` (OSC 7501) with the page's
-  title, which is what lists it with the agents.
-- **Pane** (`src/herdr.mjs`). A Herdr terminal labelled with a space and a tab shows up in that
-  tab on every Herdr window looking at its machine. So the viewer is started with `hc run` and
-  the labels of the terminal it was called from.
+  become DevTools input events. It reports itself as `chrome` (OSC 7501) with the page's title,
+  which is what lists it with the agents in Herdr and what Rex shows as the pane's program.
+- **Pane** (`src/hosts.mjs`). One small adapter for each multiplexer: how to tell a terminal is
+  inside it, how to open the viewer beside the caller, and which panes share the caller's tab.
+  In Herdr a terminal labelled with a space and a tab shows up in that tab on every Herdr window
+  looking at its machine, so the viewer is started with `hc run` and the labels of the terminal
+  it was called from. In Rex and Tern it is a split of the caller's block.
 - **Agent commands** (`src/agent.mjs`). Each is a process of its own that attaches a second
   DevTools session to the pane's tab, through the bridge, and detaches when done. It reads the
   accessibility tree and the elements' boxes, and clicks with the same input events the viewer
@@ -325,6 +347,8 @@ with. In short:
 - Native menus (a `<select>`'s list, the file picker, right-click menus) are drawn by the
   system, not the page, so they don't appear. An agent's `select` works all the same. In Herdr,
   right-click opens Herdr's own menu.
+- In Rex, a click on a pane that does not have the keyboard gives it the keyboard: the page gets
+  the next one.
 - Cmd shortcuts belong to the terminal app; Ctrl+Q, Ctrl+T, Ctrl+L and Ctrl+R belong to the
   viewer. No sound, and video is a slideshow.
 - An agent's `snapshot` lists what the page marks as a control. Something clickable that is only

@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { runAgent, VERBS } from './agent.mjs';
 import { BRIDGE, canConnect, runBridge } from './bridge.mjs';
 import { connect } from './cdp.mjs';
-import { openPane } from './herdr.mjs';
+import { hostOf } from './hosts.mjs';
 import { ours } from './panes.mjs';
 import { logPath, pidPath, socketPath } from './paths.mjs';
 import { oneLine } from './util.mjs';
@@ -25,7 +25,7 @@ Usage:
   chrome-pane herdr [--remove] give this computer's Herdr app the name and icon for it
   chrome-pane skill [install|remove]   print the agent skill; link it where Claude Code and Codex look
 
-For agents (they act on the tab the pane of their Herdr tab shows, and answer in text):
+For agents (they act on the tab the pane of their own tab shows, and answer in text):
   chrome-pane open <url>       go there (opens the pane if there is none); prints the page
   chrome-pane snapshot         the controls in view, each with a ref (--all, --in <ref>, --text, --urls)
   chrome-pane find <text>      where on the page that is (--role <role>)
@@ -39,11 +39,11 @@ For agents (they act on the tab the pane of their Herdr tab shows, and answer in
   chrome-pane eval <js>, dialog accept|dismiss, done
 
 In a terminal, the tab is shown there. Called by a program with no terminal (an agent) inside
-Herdr, or with --pane, it opens as a new pane of the Herdr tab it was called from.
+Herdr, Rex or Tern, or with --pane, it opens as a new pane beside the one it was called from.
 
 Options:
   --tab <text>           show the open tab whose title or address has this text
-  --pane                 open as a new pane of this Herdr tab, even from a terminal
+  --pane                 open as a new pane of this tab of Herdr, Rex or Tern, even from a terminal
   --mirror               keep the size the tab has in Chrome (default: fit it to the pane)
   --no-front             never bring the tab to the front in Chrome (it is not drawn while behind)
   --quality <q>          auto: half the pixels while the page moves, sharp once it rests (default);
@@ -171,8 +171,11 @@ async function main() {
     if (view.mirror) pass.push('--mirror');
     if (!view.parts) pass.push('--whole');
     if (!view.front) pass.push('--no-front');
-    const address = openPane(pass);
-    return console.log(`Chrome opened as a pane of this Herdr tab (terminal ${address}).`);
+    const host = hostOf();
+    if (!host) throw new Error('this is not a terminal of Herdr, Rex or Tern to open a pane in: run chrome-pane in a terminal to view there');
+    // A person who asked for the pane is about to use it; an agent's stays out of its way.
+    const { terminal } = host.open(pass, process.env, { focus: Boolean(o.pane && process.stdin.isTTY) });
+    return console.log(`Chrome opened as a pane of this ${host.name} tab (${terminal}).`);
   }
   await new Viewer(view).run();
 }

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { keyEvent, webAddress, words } from '../src/agent.mjs';
-import { whereAmI } from '../src/herdr.mjs';
+import { whereAmI } from '../src/hosts.mjs';
 
 test('a batch line splits into words, quotes keeping them together', () => {
   assert.deepEqual(words('fill e12 "Ada Lovelace"'), ['fill', 'e12', 'Ada Lovelace']);
