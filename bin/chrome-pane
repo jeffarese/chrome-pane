@@ -1,0 +1,21 @@
+#!/bin/sh
+# Finds node and runs chrome-pane. Works through symlinks (~/.local/bin/chrome-pane).
+self=$0
+while [ -L "$self" ]; do
+  t=$(readlink "$self")
+  case $t in /*) self=$t ;; *) self=$(dirname "$self")/$t ;; esac
+done
+root=$(cd "$(dirname "$self")/.." && pwd -P)
+node=${CHROME_PANE_NODE:-}
+if [ -z "$node" ]; then
+  if command -v node >/dev/null 2>&1; then
+    node=node
+  else
+    for c in "$HOME/.local/bin/node" /opt/homebrew/bin/node /usr/local/bin/node \
+      "$HOME/.local/share/mise/shims/node" "$HOME/.volta/bin/node"; do
+      [ -x "$c" ] && { node=$c; break; }
+    done
+  fi
+fi
+[ -n "$node" ] || { echo "chrome-pane: node 22 or newer is needed and was not found" >&2; exit 127; }
+exec "$node" "$root/src/chrome-pane.mjs" "$@"

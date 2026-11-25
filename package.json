@@ -1,0 +1,10 @@
+{
+  "name": "chrome-pane",
+  "version": "0.1.0",
+  "description": "Your own Chrome, shown and driven in a terminal pane",
+  "type": "module",
+  "private": true,
+  "bin": { "chrome-pane": "bin/chrome-pane" },
+  "engines": { "node": ">=22" },
+  "scripts": { "test": "node --test test/*.test.mjs" }
+}
