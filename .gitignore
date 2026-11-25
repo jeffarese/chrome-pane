@@ -3,3 +3,6 @@ node_modules/
 __pycache__/
 *.pyc
 bench/results/
+# What the Herdr app writes beside a mod it checks
+herdr/mod/jsconfig.json
+herdr/mod/*.d.ts

@@ -431,7 +431,12 @@ run('open', site + '/pop')
 
 n = len(out)
 code, text, _ = run('done')
-step('done: the pane is the person\'s again', code == 0 and shown(' ‹  ›  ↻ '.encode(), 7, n))
+def persons():
+    # The bar as last drawn: its buttons, and no agent named beside them.
+    tail = out[n:]
+    at = max(tail.rfind(' ↻ '.encode()), tail.rfind(' ✕ '.encode()))
+    return at >= 0 and b'Agent:' not in tail[at:]
+step('done: the pane is the person\'s again', code == 0 and until(persons, 7))
 
 n = len(out)
 os.write(fd, b'\x14')

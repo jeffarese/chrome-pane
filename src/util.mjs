@@ -58,26 +58,17 @@ export function shortAddress(url) {
 }
 
 /**
- * The page's line in the bar, for `cols` cells: the address first and whole while it fits, since
- * it says where you are; the title after it only in the room that is left.
- */
-export function barLine(url, title, cols) {
-  const address = shortAddress(url), sep = '  ·  ';
-  const left = cols - width(address) - width(sep);
-  if (!address) return title || '';
-  return title && left >= 8 ? `${address}${sep}${title}` : address;
-}
-
-/**
  * Where a frame of `img` pixels goes in the area under the bar: scaled to fit, keeping its
- * shape, centered across. Sizes are in cells; `row0` and `col0` are zero-based.
+ * shape, centered across. Sizes are in cells; `row0` and `col0` are zero-based. `term.bar`: the
+ * rows the bar takes, none when the multiplexer draws the controls itself.
  */
 export function place(img, term) {
-  const cols = term.cols, rows = Math.max(1, term.rows - 1);
+  const bar = term.bar ?? 1;
+  const cols = term.cols, rows = Math.max(1, term.rows - bar);
   const scale = Math.min((cols * term.cellW) / img.w, (rows * term.cellH) / img.h);
   const c = Math.min(cols, Math.max(1, Math.round((img.w * scale) / term.cellW)));
   const r = Math.min(rows, Math.max(1, Math.round((img.h * scale) / term.cellH)));
-  return { c, r, col0: Math.floor((cols - c) / 2), row0: 1 };
+  return { c, r, col0: Math.floor((cols - c) / 2), row0: bar };
 }
 
 /** A point of the terminal, in pixels, as a point of the page, in CSS pixels. */

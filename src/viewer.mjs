@@ -1,13 +1,15 @@
 // The viewer: one Chrome tab drawn in this terminal, with the mouse and keyboard sent to it.
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { actAt, barParts, editKey, editOf, looks, paint } from './bar.mjs';
 import { connect } from './cdp.mjs';
 import { hostOf } from './hosts.mjs';
 import { InputParser } from './input.mjs';
 import { keyCalls } from './keys.mjs';
-import { notesDir, readAsk, readNote, registerPane, unregisterPane, writeAsk } from './panes.mjs';
+import { drawnBy, notesDir, readAsk, readNote, registerPane, setDrawnBy, takeActs, unregisterPane, writeAsk, writeBar } from './panes.mjs';
 import { changedCells, decodePng, encodePng } from './png.mjs';
-import { barLine, fit, normalizeUrl, oneLine, place, pngSize, shortAddress, toPage, width } from './util.mjs';
+import { fit, normalizeUrl, oneLine, place, pngSize, toPage } from './util.mjs';
 
 const ST = '\x1b\\';
 // The ids of the questions asked of the screens, above every picture's.
@@ -18,6 +20,10 @@ const BIG = 3000000;
 const MOUSE_ON = '\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1006h';
 const MOUSE_OFF = '\x1b[?1016l\x1b[?1006l\x1b[?1003l\x1b[?1002l\x1b[?1000l';
 const BUTTONS = ['left', 'middle', 'right'];
+// Asks the terminal its text and background colours: the bar is drawn in shades of them.
+const COLORS = `\x1b]10;?${ST}\x1b]11;?${ST}`;
+// This program, for the controls a multiplexer draws: they run it to say what was clicked.
+const MAIN = fileURLToPath(new URL('./chrome-pane.mjs', import.meta.url));
 // Whether what has the keyboard in the page takes text. A frame of another site cannot be looked
 // into: it may well be a field.
 const TYPING = `(() => {
@@ -45,10 +51,24 @@ export class Viewer {
     this.inp = opts.inp ?? process.stdin;
     this.parser = new InputParser();
     this.term = { cols: this.out.columns || 80, rows: this.out.rows || 24, cellW: 8, cellH: 17 };
+    // The rows the bar takes: none while a page is shown under controls the multiplexer draws.
+    Object.defineProperty(this.term, 'bar', { enumerable: true, get: () => (this.hosted && this.mode === 'page' && this.tab ? 0 : 1) });
     this.pixelMouse = false;
     this.mode = 'message';       // message | page | tabs
     this.message = 'Connecting to Chrome…';
-    this.editing = null;         // the address being typed, or null
+    this.edit = null;            // the address being typed ({ text, cur, all }), or null
+    this.parts = [];             // the bar as drawn: its pieces, and what a click on each does
+    this.hot = null;             // the button of the bar under the mouse
+    this.colors = { fg: null, bg: null }; // the terminal's own, once it has told them
+    this.look = looks();         // how the bar's pieces are painted
+    this.loading = false;        // the page is on its way
+    this.hist = { back: false, fwd: false }; // whether the tab has a page to go back or forward to
+    this.pageIds = new Set();    // Chrome's tabs, to count them
+    this.host = null;            // the multiplexer this runs in, if any
+    this.hosted = false;         // the multiplexer draws the controls: no bar of this viewer's own
+    this.claimed = 0;            // when it last said so itself (its header repeats it while it is there)
+    this.focusN = 0;             // counts the times its address field was asked for (Ctrl+L)
+    this.said = '';              // what it was last told the bar says
     this.tab = null;             // { targetId, sid, title, url }
     this.where = {};             // the multiplexer's terminal this runs in, and what it says of its tab, if any
     this.agent = null;           // what an agent is doing to the tab right now, for the bar
@@ -128,10 +148,10 @@ export class Viewer {
   /** A screen on another computer: it takes pictures slower than any screen on this one would. */
   get far() { return this.viewers > 0 && this.speed > 0 && this.speed < 8000; }
   /** The pane's size as one value: its cells and their pixels. */
-  sizeKey() { return `${this.term.cols}x${this.term.rows} ${this.term.cellW}x${this.term.cellH}`; }
+  sizeKey() { return `${this.term.cols}x${this.term.rows} ${this.term.cellW}x${this.term.cellH} ${this.term.bar}`; }
 
   area() {
-    const cols = this.term.cols, rows = Math.max(1, this.term.rows - 1);
+    const cols = this.term.cols, rows = Math.max(1, this.term.rows - this.term.bar);
     return { cols, rows, pxW: cols * this.term.cellW, pxH: rows * this.term.cellH };
   }
 
@@ -151,7 +171,19 @@ export class Viewer {
     for (const ev of ['end', 'close']) this.inp.on(ev, () => this.quit());
     process.on('exit', () => { unregisterPane(); this.restore(); });
     // An agent's command finds the tab to act on by the pane of its own tab of Herdr, Rex or Tern.
-    try { this.where = hostOf()?.where(process.env) ?? {}; } catch {}
+    try { this.host = hostOf(); } catch {}
+    try { this.where = this.host?.where(process.env) ?? {}; } catch {}
+    // The terminal it would be told about is another program's (this runs in a terminal inside it).
+    try { if (this.host?.publish && this.host.mine && !this.host.mine(process.env)) this.host = { ...this.host, publish: null }; } catch {}
+    // Where the multiplexer drew the controls last time, it is about to again: no bar meanwhile,
+    // or the page would be laid out twice. Nothing claims the pane (its tab is not on screen,
+    // the header is gone): the bar comes back.
+    if (this.host?.publish && !this.opts.bar && drawnBy(this.host.id)) {
+      this.hosted = true;
+      setTimeout(() => { if (!this.claimed) this.setNative(false); }, 4000).unref();
+    }
+    // A header that went without a word (the app was killed, its mod replaced) stops saying so.
+    setInterval(() => { if (this.hosted && this.claimed && Date.now() - this.claimed > 80000) this.setNative(false); }, 10000).unref();
     // Known from the start, before it shows a tab: an agent asking for a page then asks this
     // pane, and does not open a second one beside it.
     this.announce();
@@ -171,11 +203,14 @@ export class Viewer {
     if (this.cdp.state === 'waiting') this.say('Waiting for Chrome: accept its “Allow remote debugging?” prompt.');
     try { await this.cdp.ready(); } catch (e) { return this.fail(e.message); }
     await this.cdp.send('Target.setDiscoverTargets', { discover: true });
+    // The tabs Chrome already told this connection about are not announced again: counted now.
+    this.pages().then(() => this.drawBar()).catch(() => {});
     setInterval(() => this.refreshInfo(), 2000).unref();
     setInterval(() => this.check(), 3000).unref();
     // A multiplexer makes a cell size up for a pane no window shows, and need not say when a
     // window then gives it a real one (the columns and rows may stay the same): asked again.
-    setInterval(() => this.w('\x1b[16t'), 3000).unref();
+    // And its colours, which a change of theme changes.
+    setInterval(() => this.w(`\x1b[16t${COLORS}`), 3000).unref();
     await this.begin();
   }
 
@@ -183,7 +218,7 @@ export class Viewer {
   measure() {
     return new Promise((resolve) => {
       this.measured = resolve;
-      this.w(`\x1b[16t\x1b[?1016$p${this.question()}\x1b[c`);
+      this.w(`\x1b[16t\x1b[?1016$p${COLORS}${this.question()}\x1b[c`);
       setTimeout(resolve, 700);
     }).then(() => { this.measured = null; if (!this.pixelMouse) this.w('\x1b[?1016l'); });
   }
@@ -219,6 +254,7 @@ export class Viewer {
     this.quitting = true;
     // Detaching gives the tab its own size back before we go.
     if (this.tab?.sid && this.cdp && !this.cdp.closed) await Promise.race([this.cdp.send('Target.detachFromTarget', { sessionId: this.tab.sid }).catch(() => {}), sleep(500)]);
+    await this.unpublish();
     this.restore();
     await Promise.race([this.flushed(), sleep(300)]);
     process.exit(code);
@@ -227,6 +263,7 @@ export class Viewer {
   async fail(text) {
     if (this.quitting) return;
     this.quitting = true;
+    await this.unpublish();
     this.restore();
     this.out.write(`chrome-pane: ${text}\n`);
     await Promise.race([this.flushed(), sleep(300)]);
@@ -248,7 +285,11 @@ export class Viewer {
 
   // ------------------------------------------------------------------ the tab being shown
 
-  async pages() { return (await this.cdp.send('Target.getTargets')).targetInfos.filter(isPage); }
+  async pages() {
+    const pages = (await this.cdp.send('Target.getTargets')).targetInfos.filter(isPage);
+    this.pageIds = new Set(pages.map((t) => t.targetId));
+    return pages;
+  }
 
   /** Shows that tab. `backTo`: the tab whose page opened it, to return to when it closes. */
   async attach(targetId, backTo = null) {
@@ -263,9 +304,11 @@ export class Viewer {
     this.shownAt = Date.now();
     this.announce();
     this.mode = 'page';
-    this.editing = null;
+    this.edit = null;
     this.dialog = null;
     this.resend = false;
+    this.loading = false;
+    this.hist = { back: false, fwd: false };
     this.geom = null;
     this.hidden = false;
     this.mayFront = true;
@@ -276,9 +319,7 @@ export class Viewer {
     // Which request brings each page, to know the answer to a sent form (see reload). No body is kept.
     await this.cdp.send('Network.enable', { maxTotalBufferSize: 0, maxResourceBufferSize: 0 }, sid).catch(() => {});
     // The page that is there came before this looked: Chrome's history says if a form led to it.
-    this.cdp.send('Page.getNavigationHistory', {}, sid).then((h) => {
-      if (this.tab?.sid === sid && this.tab.posted === null && h.entries[h.currentIndex]?.transitionType === 'form_submit') this.setPosted(true);
-    }).catch(() => {});
+    this.refreshHistory(this.tab, true);
     // The tab may not be the one in front in Chrome: it still gets a caret and focus events.
     await this.cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true }, sid).catch(() => {});
     await this.cast();
@@ -302,6 +343,22 @@ export class Viewer {
       if (!this.tab && closed && back && pages.some((t) => t.targetId === back)) return await this.attach(back);
     } catch {}
     if (!this.tab) await this.showTabs(why).catch(() => {});
+  }
+
+  /**
+   * Asks Chrome where the page is in its tab's history: whether there is one to go back to, or
+   * forward. `first`: the page was there before this looked, so the history also says if it is
+   * the answer to a form.
+   */
+  async refreshHistory(tab = this.tab, first = false) {
+    if (!tab?.sid) return;
+    try {
+      const h = await this.cdp.send('Page.getNavigationHistory', {}, tab.sid);
+      if (this.tab !== tab) return;
+      if (first && tab.posted === null && h.entries[h.currentIndex]?.transitionType === 'form_submit') this.setPosted(true);
+      const back = h.currentIndex > 0, fwd = h.currentIndex < h.entries.length - 1;
+      if (back !== this.hist.back || fwd !== this.hist.fwd) { this.hist = { back, fwd }; this.drawBar(); }
+    } catch {}
   }
 
   /** Reads the tab's title and address again: Chrome doesn't announce every change of them. */
@@ -346,6 +403,7 @@ export class Viewer {
 
   /** An agent's answer to the page's dialog, which it leaves for this viewer to give. */
   readAsk() {
+    for (const a of takeActs()) { try { this.act(a.act, a.arg); } catch {} }
     const tab = this.tab;
     // Asked of this pane itself while it shows no tab: open that address.
     const mine = readAsk(`pane-${process.pid}`);
@@ -496,14 +554,17 @@ export class Viewer {
       if (!this.drawing) this.drawFrames();
     } else if (method === 'Target.targetInfoChanged') {
       const t = p.targetInfo;
+      this.countPage(t.targetId, isPage(t));
       if (tab && t.targetId === tab.targetId) { tab.title = t.title; tab.url = t.url; this.drawBar(); }
       if (this.mode === 'tabs') this.refreshTabs();
     } else if (method === 'Target.targetCreated') {
       const t = p.targetInfo;
+      this.countPage(t.targetId, isPage(t));
       // A link that opens a new tab: follow it.
       if (tab && this.mode === 'page' && isPage(t) && t.openerId === tab.targetId) this.attach(t.targetId, tab.targetId).catch(() => {});
       else if (this.mode === 'tabs') this.refreshTabs();
     } else if (method === 'Target.targetDestroyed') {
+      this.countPage(p.targetId, false);
       if (tab && p.targetId === tab.targetId) this.lost(tab, 'That tab was closed.');
       else if (this.mode === 'tabs') this.refreshTabs();
     } else if (method === 'Target.detachedFromTarget') {
@@ -511,7 +572,12 @@ export class Viewer {
     } else if ((method === 'Page.frameNavigated' || method === 'Page.loadEventFired' || method === 'Page.navigatedWithinDocument') && tab && sid === tab.sid) {
       // Another page may be light enough to be sent sharp.
       if (method === 'Page.frameNavigated' && !p.frame?.parentId && this.heavy) { this.heavy = false; this.setRes(this.quality === 'fast' && this.motion < 1 ? 'half' : 'full'); }
+      if (method === 'Page.loadEventFired') this.setLoading(false);
       this.refreshInfo();
+      this.refreshHistory(tab);
+    } else if ((method === 'Page.frameStartedLoading' || method === 'Page.frameStoppedLoading') && tab && sid === tab.sid) {
+      // The page's own frame, not one inside it: its reload button is a stop button meanwhile.
+      if (p.frameId === tab.targetId) this.setLoading(method === 'Page.frameStartedLoading');
     } else if (method === 'Page.screencastVisibilityChanged' && tab && sid === tab.sid) {
       this.setHidden(!p.visible);
     } else if (method === 'Page.javascriptDialogOpening' && tab && sid === tab.sid) {
@@ -523,6 +589,19 @@ export class Viewer {
       this.announce();
       this.drawBar();
     }
+  }
+
+  setLoading(loading) {
+    if (this.loading === loading) return;
+    this.loading = loading;
+    if (this.mode === 'page') this.drawBar();
+  }
+
+  /** Keeps the count of Chrome's tabs, which the bar shows. */
+  countPage(targetId, page) {
+    if (page === this.pageIds.has(targetId)) return;
+    if (page) this.pageIds.add(targetId); else this.pageIds.delete(targetId);
+    if (this.mode === 'page') this.drawBar();
   }
 
   // ------------------------------------------------------------------ drawing
@@ -539,28 +618,129 @@ export class Viewer {
     this.w('\x1b[?2026l');
   }
 
+  /** What the bar says, whoever draws it: this viewer (bar.mjs) or the multiplexer's own controls. */
+  barState() {
+    const tab = this.mode === 'page' ? this.tab : null;
+    const closing = this.mode === 'tabs' && this.closing ? this.tabs.find((x) => x.targetId === this.closing) : null;
+    return {
+      mode: this.mode === 'page' && !tab ? 'message' : this.mode,
+      url: tab?.url ?? '', title: tab?.title ?? '', loading: Boolean(tab && this.loading), back: this.hist.back, fwd: this.hist.fwd, tabs: this.pageIds.size,
+      agent: tab ? this.agent : null, dialog: this.dialog, resend: Boolean(tab && this.resend), hidden: Boolean(tab && this.hidden), notice: tab ? this.notice : null,
+      closing: this.mode === 'tabs' && this.closing ? closing?.title || closing?.url || 'this tab' : null,
+      edit: this.edit, hot: this.hot,
+    };
+  }
+
   drawBar() {
-    const cols = this.term.cols;
-    const hint = this.mode === 'page' && this.editing === null && !this.dialog && !this.resend && cols >= 70 ? ' ^T tabs · ^L address · ^Q quit ' : '';
-    let text;
-    if (this.editing !== null) text = ` Go to: ${this.editing}▏`;
-    else if (this.dialog) text = ` ${this.dialog.type}: ${this.dialog.message}   (Enter: OK · Esc: cancel)`;
-    else if (this.mode === 'tabs' && this.closing) {
-      const t = this.tabs.find((x) => x.targetId === this.closing);
-      text = ` Close “${fit(t?.title || t?.url || 'this tab', 40).trimEnd()}” in Chrome?    x again: close it · any other key: keep it`;
-    } else if (this.mode === 'tabs') text = ' Chrome tabs    ↑↓ move · Enter show · n new tab · x close tab · Esc back · q quit';
-    else if (this.mode === 'page' && this.tab && this.resend) text = ' This page answers a form you sent: a reload sends the form again.    ^R again: send it again · any other key: leave it';
-    else if (this.mode === 'page' && this.tab && this.notice) text = ` ${this.notice}`;
-    else if (this.mode === 'page' && this.tab && this.hidden) text = ' ⏸  Chrome is not drawing this tab (it is behind another one). Click or press a key to bring it forward.';
-    else if (this.mode === 'page' && this.tab && this.agent) {
-      text = ` ● Agent: ${this.agent}`;
-      const page = this.tab.title || shortAddress(this.tab.url);
-      if (page && cols - hint.length - width(text) >= 15) text += `   ·   ${page}`;
-    }
-    else if (this.mode === 'page' && this.tab) text = ` ‹  ›  ↻  ${barLine(this.tab.url, this.tab.title, cols - hint.length - 10)}`;
-    else text = ' Chrome';
-    this.w(`\x1b[1;1H\x1b[0;7m${fit(text, cols - hint.length)}${hint}\x1b[0m`);
+    const state = this.barState();
+    this.parts = this.term.bar ? barParts(state, this.term.cols) : [];
+    if (this.term.bar) this.w(`\x1b[1;1H${paint(this.parts, this.look, this.hot)}`);
     if (this.mode === 'page' && this.tab) this.w(`\x1b]2;${oneLine(this.tab.title || this.tab.url || 'Chrome').slice(0, 120)}${ST}`);
+    this.publish(state);
+  }
+
+  /**
+   * Says what the bar says to whoever does not look at this terminal: a file that `chrome-pane
+   * bar` prints, and the multiplexer, for the controls it draws itself (Herdr's pane header).
+   * Once per change; the multiplexer gets the latest when several come while it is being told.
+   */
+  publish(state = this.barState()) {
+    if (this.quitting) return;
+    const { edit, hot, closing, ...s } = state;
+    // native: the multiplexer draws the controls. own: it is not to (--bar): this viewer keeps its bar.
+    const text = JSON.stringify({ v: 1, pid: process.pid, cli: [process.execPath, MAIN], native: this.hosted, own: Boolean(this.opts.bar), focus: this.focusN, ...s,
+      url: s.url.slice(0, 2000), title: oneLine(s.title).slice(0, 200), dialog: s.dialog && { type: s.dialog.type, message: oneLine(s.dialog.message ?? '').slice(0, 300) } });
+    if (text === this.saying) return;
+    this.saying = text;
+    try { writeBar(text); } catch {}
+    if (!this.host?.publish) return;
+    if (this.telling || this.saying === this.said) return;
+    this.telling = (async () => {
+      let failed = 0;
+      while (this.saying !== this.said && !this.quitting) {
+        await sleep(30);
+        const text = this.saying;
+        // A multiplexer that cannot be told (its program is gone) is not asked for ever.
+        if (await this.host.publish(text, process.env)) failed = 0; else if (++failed >= 3) { this.host = { ...this.host, publish: null }; break; }
+        this.said = text;
+      }
+      this.telling = null;
+    })();
+  }
+
+  /** Takes back what the multiplexer was told: its controls are for a pane that shows Chrome. */
+  async unpublish() {
+    const host = this.host;
+    if (!host?.publish || !this.said) return;
+    this.host = { ...host, publish: null };
+    await Promise.race([Promise.resolve(this.telling).then(() => host.publish('', process.env)), sleep(600)]);
+  }
+
+  /**
+   * The multiplexer draws the controls for this pane (or stopped): the page gets the bar's row
+   * (or gives it back). Asked by its controls themselves, whenever one starts or goes.
+   */
+  setNative(on) {
+    if (on) { this.claimed = Date.now(); if (this.host) setDrawnBy(this.host.id, true); }
+    on = Boolean(on) && !this.opts.bar && Boolean(this.host?.publish);
+    if (on === this.hosted) return this.publish();
+    const shown = this.term.bar;
+    this.hosted = on;
+    this.hot = null;
+    if (on && this.mode === 'page') this.edit = null;
+    if (this.term.bar === shown) return this.publish();
+    // The page has one row more, or one less: everything is drawn again at its new size.
+    this.w(`${this.forget()}\x1b[0m\x1b[2J`);
+    this.geom = null;
+    this.draw();
+    this.cast();
+  }
+
+  /**
+   * One action of the bar: a click on it, the key that stands for it, or what the multiplexer's
+   * own controls ask (chrome-pane bar <terminal> <action> [value]).
+   */
+  act(name, arg = null) {
+    const tab = this.tab, page = this.mode === 'page' && tab ? tab : null;
+    const ready = this.cdp && this.cdp.state === 'ready';
+    if (name === 'native') return this.setNative(arg === 'on');
+    if (!ready) return;
+    if (name === 'back' || name === 'forward') { if (page) this.history(name === 'back' ? -1 : 1); }
+    else if (name === 'reload') { if (page) this.reload(); }
+    else if (name === 'stop') { if (page) this.cdp.send('Page.stopLoading', {}, page.sid).catch(() => {}); }
+    else if (name === 'front') this.front();
+    else if (name === 'address') {
+      if (!page) return;
+      // The multiplexer's own field takes the typing: it is told that it was asked for.
+      if (this.hosted) { this.focusN++; return this.publish(); }
+      this.edit = editOf(page.url); this.newTab = false; this.drawBar();
+    } else if (name === 'go') {
+      const url = typeof arg === 'string' ? normalizeUrl(arg) : null;
+      if (page && url) { this.resend = false; this.cdp.send('Page.navigate', { url }, page.sid).catch(() => {}); }
+    } else if (name === 'tabs') { if (this.mode === 'tabs') this.backToPage(); else this.showTabs().catch(() => {}); }
+    else if (name === 'page') { if (this.mode === 'tabs') this.backToPage(); }
+    else if (name === 'newtab') { if (this.mode === 'tabs') { this.edit = editOf(''); this.newTab = true; this.drawBar(); } }
+    else if (name === 'dialog-ok' || name === 'dialog-cancel') {
+      if (page && this.dialog) this.cdp.send('Page.handleJavaScriptDialog', { accept: name === 'dialog-ok' }, page.sid).catch(() => {});
+    } else if (name === 'resend-yes') { if (page && this.resend) this.reload(); }
+    else if (name === 'resend-no') { if (this.resend) { this.resend = false; this.drawBar(); } }
+    else if (name === 'close-yes' || name === 'close-no') {
+      const id = this.closing;
+      if (this.mode !== 'tabs' || !id) return;
+      this.closing = null;
+      this.drawBar();
+      if (name === 'close-yes') this.cdp.send('Target.closeTarget', { targetId: id }).catch(() => {});
+    } else if (name === 'edit-go' || name === 'edit-cancel') { if (this.edit) this.onEditKey({ type: 'key', name: name === 'edit-go' ? 'Enter' : 'Escape' }); }
+  }
+
+  /** From the list of tabs back to the page that was shown; with none, there is nothing to stay for. */
+  backToPage() {
+    if (!this.tab) return this.quit();
+    this.mode = 'page';
+    this.edit = null;
+    this.w('\x1b[2J');
+    this.draw();
+    this.cast();
   }
 
   drawTabs() {
@@ -878,10 +1058,10 @@ export class Viewer {
     if (ev.type === 'key' && ev.ctrl && ev.name === 'q') return this.quit();
     // Ctrl+C is copy to a page; with no page to give it to, it ends the program as in any terminal.
     if (ev.type === 'key' && ev.ctrl && ev.name === 'c') {
-      if (this.mode !== 'page' || !this.tab || this.editing !== null) return this.quit();
+      if (this.mode !== 'page' || !this.tab || this.edit) return this.quit();
       this.note('Ctrl+C copies in the page · Ctrl+Q quits the viewer');
     }
-    if (this.editing !== null) return this.onEditKey(ev);
+    if (this.edit) return this.onEditKey(ev);
     if (this.mode === 'tabs') return this.onTabsKey(ev);
     if (this.mode !== 'page' || !this.tab) return ev.type === 'key' && (ev.name === 'q' || ev.name === 'Escape') ? this.quit() : undefined;
     const sid = this.tab.sid;
@@ -890,14 +1070,12 @@ export class Viewer {
       if (this.resend) { this.resend = false; this.drawBar(); }
       return void this.cdp.send('Input.insertText', { text: ev.text }, sid).catch(() => {});
     }
-    if (this.dialog && (ev.name === 'Enter' || ev.name === 'Escape')) {
-      return void this.cdp.send('Page.handleJavaScriptDialog', { accept: ev.name === 'Enter' }, sid).catch(() => {});
-    }
+    if (this.dialog && (ev.name === 'Enter' || ev.name === 'Escape')) return this.act(ev.name === 'Enter' ? 'dialog-ok' : 'dialog-cancel');
     if (ev.ctrl && ev.name === 'r') return this.reload();
     // Any other key is the answer "no" to sending a form again, and nothing more.
     if (this.resend) { this.resend = false; return this.drawBar(); }
-    if (ev.ctrl && ev.name === 'l') { this.editing = ''; this.newTab = false; return this.drawBar(); }
-    if (ev.ctrl && ev.name === 't') return void this.showTabs().catch(() => {});
+    if (ev.ctrl && ev.name === 'l') return this.act('address');
+    if (ev.ctrl && ev.name === 't') return this.act('tabs');
     if (ev.alt && (ev.name === 'ArrowLeft' || ev.name === 'ArrowRight')) return void this.altArrow(ev);
     for (const c of keyCalls(ev)) this.cdp.send(c.method, c.params, sid).catch(() => {});
   }
@@ -909,7 +1087,12 @@ export class Viewer {
       this.debug?.('cell', ev.w, ev.h);
       if (!this.measured && this.mode === 'page') this.cast();
     } else if (ev.kind === 'mode' && ev.mode === 1016) this.pixelMouse = ev.value === 1 || ev.value === 3;
-    else if (ev.kind === 'da') this.measured?.();
+    else if (ev.kind === 'color') {
+      if (String(this.colors[ev.which]) === String(ev.rgb)) return;
+      this.colors[ev.which] = ev.rgb;
+      this.look = looks(this.colors.fg, this.colors.bg);
+      if (!this.measured) this.drawBar();
+    } else if (ev.kind === 'da') this.measured?.();
     else if (ev.kind === 'gfx') this.onGfx(ev);
   }
 
@@ -959,20 +1142,17 @@ export class Viewer {
   }
 
   onEditKey(ev) {
-    if (ev.type === 'paste') this.editing += ev.text.replace(/[\r\n]+/g, ' ');
-    else if (ev.type !== 'key') return;
-    else if (ev.name === 'Escape') { this.editing = null; if (!this.tab) return void this.showTabs().catch(() => {}); }
-    else if (ev.name === 'Enter') {
-      const url = normalizeUrl(this.editing);
+    if (ev.type === 'key' && ev.name === 'Escape') {
+      this.edit = null;
+      if (!this.tab) return void this.showTabs().catch(() => {});
+    } else if (ev.type === 'key' && ev.name === 'Enter') {
+      const url = normalizeUrl(this.edit.text);
       const fresh = this.newTab || !this.tab;
-      this.editing = null;
+      this.edit = null;
       if (!url) return this.tab ? this.drawBar() : void this.showTabs().catch(() => {});
       if (fresh) return void this.cdp.send('Target.createTarget', { url, background: true }).then((r) => this.attach(r.targetId)).catch((e) => this.say(e.message));
       this.cdp.send('Page.navigate', { url }, this.tab.sid).catch(() => {});
-    } else if (ev.name === 'Backspace') this.editing = [...this.editing].slice(0, -1).join('');
-    else if (ev.ctrl && ev.name === 'u') this.editing = '';
-    else if ((ev.name === 'Tab' || ev.name === 'ArrowRight') && !this.editing && this.tab) this.editing = this.tab.url;
-    else if (!ev.ctrl && !ev.alt && [...ev.name].length === 1) this.editing += ev.name;
+    } else this.edit = editKey(this.edit, ev);
     this.drawBar();
   }
 
@@ -983,14 +1163,19 @@ export class Viewer {
     const px = this.pixelMouse ? ev.x : (ev.x - 0.5) * cellW;
     const py = this.pixelMouse ? ev.y : (ev.y - 0.5) * cellH;
     const wheel = (ev.b & 64) !== 0, motion = (ev.b & 32) !== 0, pressed = !ev.release && !wheel && !motion;
-    if (this.mode === 'tabs') return this.onTabsMouse(ev, py, wheel, pressed);
-    if (this.mode !== 'page' || !this.tab) return;
-    if (this.hidden && pressed) this.front();
-    if (py < cellH && !this.held) {
-      if (pressed && (ev.b & 3) === 0) this.onBarClick(Math.floor(px / cellW));
+    if (this.mode !== 'tabs' && (this.mode !== 'page' || !this.tab)) return;
+    if (this.mode === 'page' && this.hidden && pressed) this.front();
+    if (this.term.bar && py < cellH && !this.held) {
+      const act = wheel ? null : actAt(this.parts, Math.floor(px / cellW));
+      this.setHot(act);
+      if (pressed && (ev.b & 3) === 0) this.onBarClick(act);
       return;
     }
-    if (!this.geom || !this.tab.view || this.editing !== null) return;
+    this.setHot(null);
+    if (this.mode === 'tabs') return this.onTabsMouse(ev, py, wheel, pressed);
+    // A click on the page while an address is typed leaves the field, as it does in a browser.
+    if (this.edit) { if (pressed) { this.edit = null; this.drawBar(); } return; }
+    if (!this.geom || !this.tab.view) return;
     if (pressed && this.resend) { this.resend = false; this.drawBar(); }
     const sid = this.tab.sid;
     const at = toPage(px, py, { ...this.geom, cssW: this.tab.view.w, cssH: this.tab.view.h }, this.term);
@@ -1024,13 +1209,20 @@ export class Viewer {
     send({ type: 'mousePressed', button, buttons: this.held, clickCount: this.lastClick.count });
   }
 
-  onBarClick(col) {
-    // The bar is asking whether to send a form again: a click on it says no.
-    if (this.resend) { this.resend = false; return this.drawBar(); }
-    if (col >= 1 && col <= 2) this.history(-1);
-    else if (col >= 4 && col <= 5) this.history(1);
-    else if (col >= 7 && col <= 8) this.reload();
-    else { this.editing = ''; this.newTab = false; this.drawBar(); }
+  /** The button of the bar the mouse is on is lit; a mouse that left the pane says nothing, so not for long. */
+  setHot(act) {
+    clearTimeout(this.hotTimer);
+    if (act) this.hotTimer = setTimeout(() => this.setHot(null), 4000);
+    if (act === this.hot) return;
+    this.hot = act;
+    this.drawBar();
+  }
+
+  onBarClick(act) {
+    // The bar is asking a question (send the form again? close the tab?): a click beside its buttons says no.
+    if (this.resend && act !== 'resend-yes') { this.resend = false; return this.drawBar(); }
+    if (this.mode === 'tabs' && this.closing && act !== 'close-yes') { this.closing = null; return this.drawBar(); }
+    if (act) this.act(act);
   }
 
   // ------------------------------------------------------------------ the list of tabs
@@ -1038,7 +1230,7 @@ export class Viewer {
   async showTabs(note = '') {
     this.mode = 'tabs';
     this.closing = null;
-    this.editing = null;
+    this.edit = null;
     this.message = note;
     this.tabs = await this.pages();
     const at = this.tabs.findIndex((t) => t.targetId === this.tab?.targetId);
@@ -1079,14 +1271,11 @@ export class Viewer {
     if (ev.name === 'ArrowUp' || ev.name === 'k') this.sel = Math.max(0, this.sel - 1);
     else if (ev.name === 'ArrowDown' || ev.name === 'j') this.sel = Math.min(n - 1, this.sel + 1);
     else if (ev.name === 'Enter') return void this.openSelected();
-    else if (ev.name === 'n') { this.editing = ''; this.newTab = true; return this.drawBar(); }
+    else if (ev.name === 'n') return this.act('newtab');
     else if (ev.name === 'x' && this.tabs[this.sel]) { this.closing = this.tabs[this.sel].targetId; return this.drawBar(); }
     else if (ev.name === 'q') return this.quit();
-    else if (ev.name === 'Escape' || (ev.ctrl && ev.name === 't')) {
-      if (!this.tab) return this.quit();
-      this.mode = 'page'; this.w('\x1b[2J'); this.draw();
-      return void this.cast();
-    } else return;
+    else if (ev.name === 'Escape' || (ev.ctrl && ev.name === 't')) return this.backToPage();
+    else return;
     this.sel = Math.max(0, this.sel);
     this.draw();
   }

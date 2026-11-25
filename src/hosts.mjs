@@ -10,10 +10,13 @@
 //   starting(env)            null, or how to tell a pane of this tab that has not said anything yet
 //   open(viewArgs, env, o)   the viewer as a new pane beside this terminal: { terminal, match },
 //                            match(list) being that pane's viewer once it runs
+//   publish(text, env)       optional: tells the multiplexer what the viewer's bar would say, for
+//                            controls it draws itself; resolves once it is told
+//   mine(env)                optional: is the terminal the environment names the one this draws in
 //
 // Anywhere else chrome-pane is a program for the terminal it is run in, and an agent's
 // commands act on the pane used last.
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -24,12 +27,15 @@ const main = fileURLToPath(new URL('./chrome-pane.mjs', import.meta.url));
 // A multiplexer's own command, by the first of the places it may be at: a pane's PATH need
 // not have it (Herdr's core starts terminals with its own, an agent's is often fixed).
 const found = new Map();
-function cli(name, places, args, env) {
+function program(name, places, env) {
   const key = `${name}\n${places[0] ?? ''}\n${env.PATH ?? ''}`;
   if (!found.has(key)) {
     found.set(key, places.filter(Boolean).find((p) => (p.includes('/') ? fs.existsSync(p) : !spawnSync(p, ['--version'], { env }).error)) ?? name);
   }
-  const r = spawnSync(found.get(key), args, { encoding: 'utf8', env });
+  return found.get(key);
+}
+function cli(name, places, args, env) {
+  const r = spawnSync(program(name, places, env), args, { encoding: 'utf8', env });
   if (r.error) throw new Error(`${name} was not found`);
   if (r.status !== 0) throw new Error((r.stderr || r.stdout || `${name} ${args[0]} failed`).trim());
   return r.stdout;
@@ -50,7 +56,10 @@ function viewer(viewArgs, env, more = []) {
 // Mac's, or another computer's. So the viewer is started as such a terminal, here, next to
 // Chrome, and whoever has the tab open sees it.
 
-const hc = (args, env) => cli('hc', ['hc', path.join(os.homedir(), '.local/bin/hc'), '/opt/homebrew/bin/hc', '/usr/local/bin/hc'], args, env);
+const HC = ['hc', path.join(os.homedir(), '.local/bin/hc'), '/opt/homebrew/bin/hc', '/usr/local/bin/hc'];
+const hc = (args, env) => cli('hc', HC, args, env);
+/** The label under which a viewer tells Herdr's pane header what its bar would say. */
+export const HERDR_BAR = 'chrome-pane.bar';
 
 /** The space and tab of the Herdr terminal this runs in, or of the nearest parent that has them. */
 export function whereAmI(env = process.env) {
@@ -97,6 +106,27 @@ const herdr = {
   starting(env) {
     const pids = herdrPids(whereAmI(env), null, env);
     return pids.length ? (list) => list.find((p) => pids.includes(p.pid)) : null;
+  },
+  // Whether this process draws in the Herdr terminal its environment names, and not in one of
+  // another program's that runs inside it (tmux, a test's pty): only then are that terminal's
+  // labels this viewer's to write.
+  mine(env) {
+    try {
+      const t = JSON.parse(hc(['get', env.HC_TERMINAL_ID, '--json'], env));
+      if (t.pid === process.pid) return true;
+      const tty = (pid) => spawnSync('ps', ['-o', 'tty=', '-p', String(pid)], { encoding: 'utf8' }).stdout.trim();
+      const here = tty(process.pid);
+      return Boolean(here) && !here.startsWith('?') && here === tty(t.pid);
+    } catch { return false; }
+  },
+  // A label on the viewer's terminal: every Herdr window showing the pane reads it, on this
+  // computer or another. Not waited for: the viewer has frames to draw meanwhile.
+  publish(text, env) {
+    return new Promise((resolve) => {
+      const child = spawn(program('hc', HC, env), ['label', env.HC_TERMINAL_ID, `${HERDR_BAR}=${text}`], { stdio: 'ignore', env });
+      child.on('error', () => resolve(false));
+      child.on('exit', (code) => resolve(code === 0));
+    });
   },
   open(viewArgs, env) {
     const here = whereAmI(env);

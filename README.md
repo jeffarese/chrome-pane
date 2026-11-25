@@ -182,7 +182,8 @@ The installer:
 
 - links `~/.local/bin/chrome-pane` to the clone (`CHROME_PANE_BIN=<folder> ./install.sh` puts
   the link in another folder);
-- gives the Herdr app on this computer the pane's name and icon, if Herdr is installed;
+- gives the Herdr app on this computer the pane's name and icon, and a pane header that draws
+  Chrome's controls ([how to use it](#in-a-multiplexer)), if Herdr is installed;
 - links the agents' skill where Claude Code and Codex look for skills ([the skill](#for-agents)).
 
 If it ends with "Add ~/.local/bin to your PATH", do that in your shell's startup file (for zsh,
@@ -228,7 +229,7 @@ sandbox, which blocks unix sockets.
 
 `git pull` in the clone updates it: the link and the skill point into the clone. If you move the
 clone, run `./install.sh` again from its new place. `./install.sh --remove` takes it all out: the
-link, Herdr's name and icon, and the skill.
+link, Herdr's name, icon and pane header, and the skill.
 
 ### When it does not work
 
@@ -267,8 +268,48 @@ chrome-pane tabs                 # list the tabs
 Everything else, and the mouse, goes to the page. Copy and paste use the clipboard of the
 computer Chrome runs on; your terminal's own paste types into the page from yours. A window
 the page opens (a sign-in, a link in a new tab) is shown in its place, and the pane returns to
-the page when that window closes. The bar's `‹`, `›` and `↻` take clicks, and a
-click on the address edits it. `chrome-pane --help` lists the options.
+the page when that window closes. `chrome-pane --help` lists the options.
+
+### The bar
+
+The row above the page is the browser's toolbar, in your terminal's own colours:
+
+```
+ ‹  ›  ↻   example.com/orders/1042  ·  Order 1042 — Acme Shop            3 tabs  ^L address · ^T tabs · ^Q quit
+```
+
+- `‹`, `›` and `↻` take clicks. They are dim when there is nowhere to go back or forward to,
+  and `↻` is `✕` (stop) while the page loads. The mouse over one says what it does.
+- The address is a field: a click or Ctrl+L selects it, as in a browser, so typing replaces it
+  and an arrow edits it. Enter goes, Esc leaves it. Words that are no address are searched for.
+- `3 tabs` opens the list of Chrome's tabs.
+- What the page asks takes clicks too: a dialog has `OK` and `Cancel`, a reload that would send
+  a form again `Send it again` and `Leave it`.
+- A narrow pane keeps the buttons and the address, and drops the key hints first.
+
+### Without the pane
+
+The bar can be read and used with no pane to look at or click in: from a script, another
+program, or a multiplexer's own toolbar.
+
+```sh
+chrome-pane bar                       # what the bar says, as JSON
+chrome-pane bar go example.com        # one of its actions
+chrome-pane bar --in t4c2 back        # the pane of another terminal, or of a viewer's pid
+```
+
+```json
+{ "terminal": "t4c2", "v": 1, "pid": 4242, "native": false, "own": false, "focus": 0,
+  "mode": "page", "url": "https://example.com/", "title": "Example Domain", "loading": false,
+  "back": true, "fwd": false, "tabs": 3, "agent": null, "dialog": null, "resend": false,
+  "hidden": false, "notice": null }
+```
+
+The actions are those of the bar: `back`, `forward`, `reload`, `stop`, `go <address>`, `tabs`,
+`page`, `front`, `address`, and the answers `dialog-ok`, `dialog-cancel`, `resend-yes` and
+`resend-no`. The viewer does an action as soon as it is asked; one it has not taken within 15
+seconds is dropped, not done late. These are the person's controls. An agent has
+[its own commands](#for-agents), which also say what the page did.
 
 ### In a multiplexer
 
@@ -282,6 +323,29 @@ of opening a second one.
 | **[Herdr](https://herdr.dev)** | `hc run`, with the space and tab of the terminal that asked | The pane is listed with the agents as Chrome, with the page's title and its own icon, and shows on every computer looking at that tab. |
 | **Rex** | `rex split`, to the right of the block that asked | The block is labelled Chrome, shows the page's title and tells Rex its program is `chrome`. It closes when the viewer quits. `--pane` typed by you gets the keyboard. |
 | **Tern** | `tern split`, to the right of the block that asked | The block's title is the page's. It closes when the viewer quits. `--pane` typed by you gets the keyboard. |
+
+**Herdr's own pane header can draw the controls**, as real buttons and a real text field, and
+the viewer then draws no bar: the page has the whole pane.
+
+`chrome-pane herdr` (the installer runs it) puts a pane header named `chrome-pane` in the
+Herdr app's mods. A layout uses it as its pane header:
+
+```json
+{ "tab": "active", "pane": { "header": { "content": { "mod": "chrome-pane" } } } }
+```
+
+It is Herdr's own header for every other pane. If you have a header mod of your own,
+`chrome-pane herdr --into <mod>` puts the controls (`chrome-bar.js` and its icons) in that mod's
+folder; the top of `chrome-bar.js` has the four lines its `main.js` needs. Either way:
+
+- The viewer says what its bar shows in a label on its terminal (`chrome-pane.bar`), and the
+  header acts through `chrome-pane bar`, on the computer the viewer runs on.
+- The header tells the viewer it draws the controls, and goes on telling it. A viewer that is
+  not told for 80 seconds (the header was removed, the window closed) puts its own bar back.
+- `chrome-pane --bar` keeps the viewer's own bar in that pane.
+
+Rex has no place for a program's controls in a block's header, so the bar is the viewer's own
+there; so it is in Tern, whose plugins could draw one, which chrome-pane does not do yet.
 
 Which one it is in, chrome-pane reads from what each gives its terminals (`HC_TERMINAL_ID`,
 `REX_BLOCK`, `TERN_PANE`). With one inside another, the terminal's own `TERM_PROGRAM` decides;
@@ -371,8 +435,9 @@ Chrome runs on one computer; you sit at another whose Herdr shows the first one'
 `chrome-pane` in a session on the first one (or let its agent run it): the viewer is a terminal
 there, next to Chrome, and Herdr shows it on the computer you are at like any other pane.
 
-On the computer you watch from, only Herdr's name and icon for the pane are needed (the Herdr
-app that draws the window decides them): clone this there and run `bin/chrome-pane herdr`.
+On the computer you watch from, only Herdr's name and icon for the pane are needed, and the
+pane header if you use it (the Herdr app that draws the window decides them): clone this there
+and run `bin/chrome-pane herdr`.
 
 What travels is pictures, through Herdr's connection, so the viewer sends as little of them as
 it can: only what changed, half the pixels while the whole page moves, no more than each screen

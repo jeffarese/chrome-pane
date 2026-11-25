@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { InputParser } from '../src/input.mjs';
 import { keyCalls } from '../src/keys.mjs';
-import { barLine, clean, fit, normalizeUrl, oneLine, place, pngSize, shortAddress, toPage, width } from '../src/util.mjs';
+import { clean, fit, normalizeUrl, oneLine, place, pngSize, shortAddress, toPage, width } from '../src/util.mjs';
 
 const names = (evs) => evs.map((e) => (e.type === 'key' ? `${e.ctrl ? 'C-' : ''}${e.alt ? 'A-' : ''}${e.shift ? 'S-' : ''}${e.name}` : e.type));
 
@@ -83,9 +83,6 @@ test('the address in the bar, as a browser writes it', () => {
   assert.equal(shortAddress('https://example.com/a/?q=1'), 'example.com/a/?q=1');
   assert.equal(shortAddress('http://localhost:3000/'), 'http://localhost:3000');
   assert.equal(shortAddress('about:blank'), 'about:blank');
-  assert.equal(barLine('https://example.com/', 'Example', 40), 'example.com  ·  Example');
-  assert.equal(barLine('https://example.com/a/long/way/down', 'Example', 36), 'example.com/a/long/way/down');
-  assert.equal(barLine('', 'Example', 40), 'Example');
 });
 
 test('where a frame goes, and back to the page', () => {
@@ -94,6 +91,8 @@ test('where a frame goes, and back to the page', () => {
   // A wide frame is as wide as the pane and shorter; a tall one is centered.
   assert.deepEqual(place({ w: 2000, h: 800 }, term), { c: 100, r: 20, col0: 0, row0: 1 });
   assert.deepEqual(place({ w: 500, h: 800 }, term), { c: 50, r: 40, col0: 25, row0: 1 });
+  // With the controls drawn by the multiplexer, the page has the bar's row too.
+  assert.deepEqual(place({ w: 1000, h: 820 }, { ...term, bar: 0 }), { c: 100, r: 41, col0: 0, row0: 0 });
   const geom = { c: 50, r: 40, col0: 25, row0: 1, cssW: 250, cssH: 400 };
   assert.deepEqual(toPage(500, 420, geom, term), { x: 125, y: 200, inside: true });
   assert.equal(toPage(100, 420, geom, term).inside, false);

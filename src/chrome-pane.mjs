@@ -8,7 +8,7 @@ import { runAgent, VERBS } from './agent.mjs';
 import { BRIDGE, canConnect, runBridge } from './bridge.mjs';
 import { connect } from './cdp.mjs';
 import { hostOf } from './hosts.mjs';
-import { ours } from './panes.mjs';
+import { listPanes, ours, pushAct, readBar } from './panes.mjs';
 import { logPath, pidPath, socketPath } from './paths.mjs';
 import { oneLine } from './util.mjs';
 import { Viewer } from './viewer.mjs';
@@ -22,7 +22,12 @@ Usage:
   chrome-pane status           is the bridge to Chrome running (exit 1 when it is not)
   chrome-pane stop             stop the bridge
   chrome-pane bridge           run the bridge in the foreground (viewers start it themselves)
-  chrome-pane herdr [--remove] give this computer's Herdr app the name and icon for it
+  chrome-pane herdr [--remove] give this computer's Herdr app the name and icon for it, and a pane
+                               header that draws the controls (--into <mod>: into a header of your own)
+  chrome-pane bar              what the pane's bar says, as JSON: the page, whether it loads, what it asks
+  chrome-pane bar <action>     one action of the bar, with no pane to click in: back, forward, reload,
+                               stop, go <address>, tabs, page, front, dialog-ok, dialog-cancel,
+                               resend-yes, resend-no (--in <terminal or pid>: of that pane)
   chrome-pane skill [install|remove]   print the agent skill; link it where Claude Code and Codex look
 
 For agents (they act on the tab the pane of their own tab shows, and answer in text):
@@ -48,6 +53,7 @@ Options:
   --pane                 open as a new pane of this tab of Herdr, Rex or Tern, even from a terminal
   --mirror               keep the size the tab has in Chrome (default: fit it to the pane)
   --no-front             never bring the tab to the front in Chrome (it is not drawn while behind)
+  --bar                  keep the viewer's own bar, even where Herdr's pane header draws the controls
   --quality <q>          auto: half the pixels while the page moves, sharp once it rests (default);
                          sharp: every frame at full size; fast: never the sharp picture
   --scale <n>            pixels per page pixel (default: 2 on a Retina-size font, else 1)
@@ -59,13 +65,14 @@ Options:
   --version, --help
 
 Keys in the viewer: Ctrl+T tabs, Ctrl+L address, Ctrl+R reload, Alt+←/→ back and forward,
-Ctrl+Q quit. Everything else, and the mouse, goes to the page (Ctrl+C copies there).
+Ctrl+Q quit. Everything else, and the mouse, goes to the page (Ctrl+C copies there). The bar's
+buttons take clicks: back, forward, reload or stop, the address, the tabs.
 
 Chrome must allow it once: chrome://inspect/#remote-debugging, then accept its prompt.`;
 
 function parse(argv) {
   const o = { _: [] };
-  const flags = new Set(['mirror', 'json', 'pane', 'help', 'no-front', 'whole']);
+  const flags = new Set(['mirror', 'json', 'pane', 'help', 'no-front', 'whole', 'bar']);
   const values = { quality: String, tab: String, scale: Number, fps: Number, rate: Number, 'user-data-dir': String, idle: Number, socket: String };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -120,12 +127,31 @@ async function main() {
     if (process.stdout.destroyed || process.stdout.writableEnded) process.exit(code);
     return void process.stdout.write('', () => process.exit(code));
   }
-  const commands = new Set(['view', 'tabs', 'status', 'stop', 'bridge', 'herdr', 'skill', 'help']);
+  const commands = new Set(['view', 'tabs', 'status', 'stop', 'bridge', 'herdr', 'skill', 'help', 'bar']);
   const cmd = commands.has(argv[0]) ? argv.shift() : null;
   if (cmd === 'skill') return skill(argv);
+  if (cmd === 'bar') {
+    // The bar with no terminal to look at: what it says, or one of its actions, as a click on it
+    // would. The controls a multiplexer draws for a pane (Herdr's pane header) work through this.
+    if (asksHelp(argv)) return console.log('chrome-pane bar [--in <the pane\'s terminal, or its viewer\'s pid>] [<action> [value]]\n  Without an action: what the bar says, as JSON. Actions: back, forward, reload, stop, go <address>, tabs, page,\n  front, address, dialog-ok, dialog-cancel, resend-yes, resend-no.');
+    const rest = [];
+    let id = null;
+    for (let i = 0; i < argv.length; i++) {
+      if (argv[i] === '--in') { id = argv[++i]; if (!id) throw new Error('--in needs the pane\'s terminal, or its viewer\'s pid'); }
+      else if (argv[i] !== '--json') rest.push(argv[i]);
+    }
+    let panes = listPanes({ all: true });
+    if (id) panes = panes.filter((p) => String(p.pid) === id || p.terminal === id);
+    else { const host = hostOf(); if (host) try { panes = host.panes(panes, process.env); } catch {} }
+    if (!panes.length) throw new Error(id ? `no Chrome pane runs in ${id}` : 'there is no Chrome pane here (chrome-pane bar --in <terminal or pid>: of another tab)');
+    const [act, ...value] = rest;
+    if (act) return pushAct(panes[0].pid, act, value.length ? value.join(' ') : null);
+    const { cli, ...said } = readBar(panes[0].pid) ?? {};
+    return console.log(JSON.stringify({ terminal: panes[0].terminal ?? null, ...said }, null, 2));
+  }
   if (cmd === 'herdr') {
-    if (asksHelp(argv)) return console.log('chrome-pane herdr [--home <the Herdr app\'s folder>] [--remove]\n  Gives the Herdr app on this computer the name and icon for the pane (in its programs.json), or takes them out.');
-    // The name and icon are the Herdr app's to keep: herdr/install.mjs writes them in its programs.json.
+    if (asksHelp(argv)) return console.log('chrome-pane herdr [--home <the Herdr app\'s folder>] [--into <header mod>] [--remove]\n  Gives the Herdr app on this computer the name and icon for the pane (in its programs.json) and a pane\n  header that draws Chrome\'s controls (mods/chrome-pane), or takes them out.\n  --into: a header mod of your own gets the controls\' file and icons, to draw them itself.');
+    // The name, the icon and the pane header are the Herdr app's to keep: herdr/install.mjs puts them there.
     const r = spawnSync(process.execPath, [fileURLToPath(new URL('../herdr/install.mjs', import.meta.url)), ...argv], { stdio: 'inherit' });
     process.exit(r.status ?? 1);
   }
@@ -165,7 +191,7 @@ async function main() {
   }
 
   if (o.quality && !['auto', 'sharp', 'fast'].includes(o.quality)) throw new Error('--quality is auto, sharp or fast');
-  const view = { url: o._[0], tab: o.tab, front: !o['no-front'], quality: o.quality, mirror: o.mirror, scale: o.scale, fps: o.fps, rate: o.rate, parts: !o.whole, userDataDir: o.userDataDir, socket: o.socket };
+  const view = { url: o._[0], tab: o.tab, front: !o['no-front'], quality: o.quality, mirror: o.mirror, scale: o.scale, fps: o.fps, rate: o.rate, parts: !o.whole, bar: o.bar, userDataDir: o.userDataDir, socket: o.socket };
   // A lone word that is no address is a mistyped command, not something to search the web for.
   if (cmd !== 'view' && view.url && !/[.:/\s]/.test(view.url) && view.url !== 'localhost') {
     throw new Error(`unknown command ${view.url} (chrome-pane --help; to search for it: chrome-pane view ${view.url})`);
@@ -177,6 +203,7 @@ async function main() {
     if (view.mirror) pass.push('--mirror');
     if (!view.parts) pass.push('--whole');
     if (!view.front) pass.push('--no-front');
+    if (view.bar) pass.push('--bar');
     const host = hostOf();
     if (!host) throw new Error('this is not a terminal of Herdr, Rex or Tern to open a pane in: run chrome-pane in a terminal to view there');
     // A person who asked for the pane is about to use it; an agent's stays out of its way.

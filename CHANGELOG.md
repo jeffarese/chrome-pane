@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- The pane's bar is a browser's toolbar. It is drawn in the terminal's own colours instead of
+  reverse video. Back and forward are dim when there is nowhere to go, reload is stop while the
+  page loads, and the mouse over a button says what it does. The address is a field that opens
+  selected and is edited with the arrows, Home, End and the word keys; the site stands out in
+  it and `https://` is left out. The number of Chrome's tabs is a button that lists them, and a
+  dialog or a reload that would send a form again has buttons for its answers. A narrow pane
+  drops the key hints before it cuts the address.
+- `chrome-pane bar` prints what the bar says as JSON, and `chrome-pane bar <action>` does one of
+  its actions (`back`, `forward`, `reload`, `stop`, `go <address>`, `tabs`, `dialog-ok`…) with
+  no pane to click in; `--in` names another terminal's pane.
+- In Herdr, the pane's header can draw the controls with the app's own buttons and text field,
+  and the viewer then draws no bar. `chrome-pane herdr` installs a pane header (`chrome-pane`)
+  for a layout to use, and `chrome-pane herdr --into <mod>` gives a header mod of your own the
+  piece that draws them. `--bar` keeps the viewer's own bar.
 - In Rex and Tern, as in Herdr: an agent's `chrome-pane open` (or `--pane`) opens the viewer as
   a pane beside the caller, in the same tab, and later commands from that tab use it. Each
   multiplexer is asked in its own words (`rex split`, `tern split`, `hc run`), through one

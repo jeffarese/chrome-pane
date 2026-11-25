@@ -6,6 +6,16 @@ const TILDE = { 1: 'Home', 2: 'Insert', 3: 'Delete', 4: 'End', 5: 'PageUp', 6: '
   11: 'F1', 12: 'F2', 13: 'F3', 14: 'F4', 15: 'F5', 17: 'F6', 18: 'F7', 19: 'F8', 20: 'F9', 21: 'F10', 23: 'F11', 24: 'F12' };
 const LETTER = { A: 'ArrowUp', B: 'ArrowDown', C: 'ArrowRight', D: 'ArrowLeft', H: 'Home', F: 'End', P: 'F1', Q: 'F2', R: 'F3', S: 'F4' };
 const PASTE_END = '\x1b[201~';
+const COLOR = /^\x1b\](1[01]);([^\x07\x1b]{0,40})(?:\x07|\x1b\\)/;
+const COLOR_START = /^\x1b\](?:1(?:[01](?:;[^\x07\x1b]{0,40}\x1b?)?)?)?$/;
+
+/** A colour as a terminal names it (rgb:1a1a/2b2b/3c3c, of one to four hex digits each, or #rrggbb) as [r, g, b]. */
+function rgbOf(text) {
+  const m = /^rgba?:([0-9a-f]{1,4})\/([0-9a-f]{1,4})\/([0-9a-f]{1,4})/i.exec(text);
+  if (m) return m.slice(1, 4).map((h) => Math.round((parseInt(h, 16) / (16 ** h.length - 1)) * 255));
+  const x = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(text);
+  return x ? x.slice(1, 4).map((h) => parseInt(h, 16)) : null;
+}
 
 const key = (name, m = {}) => ({ type: 'key', name, shift: !!m.shift, alt: !!m.alt, ctrl: !!m.ctrl, meta: !!m.meta });
 function mods(n) {
@@ -72,6 +82,14 @@ export class InputParser {
         this.apcAt ||= Date.now();
         if (s.length - i < 512 && Date.now() - this.apcAt < 1000) break;
         this.apcAt = 0; i = s.length; continue;
+      }
+      if (n === ']') {
+        // The terminal's answer to "what are your colours": Esc ] 10 or 11 ; rgb:…, ended by Bel or Esc \.
+        const head = s.slice(i, i + 48);
+        const m = COLOR.exec(head);
+        if (m) { i += m[0].length; const rgb = rgbOf(m[2]); if (rgb) out.push({ type: 'reply', kind: 'color', which: m[1] === '10' ? 'fg' : 'bg', rgb }); continue; }
+        // The rest of it may be on its way; anything else is Alt and a bracket.
+        if (!flush && COLOR_START.test(head)) break;
       }
       if (n === 'O') {
         if (i + 2 >= s.length) { if (!flush) break; } else if (LETTER[s[i + 2]]) { out.push(key(LETTER[s[i + 2]])); i += 3; continue; }

@@ -43,7 +43,21 @@ export function registerPane(targetId, where = {}, dialog = null, at = Date.now(
 
 export function unregisterPane() {
   try { fs.unlinkSync(path.join(dirOf('panes'), `${process.pid}.json`)); } catch {}
+  try { fs.unlinkSync(barFile(process.pid)); } catch {}
 }
+
+/**
+ * What a viewer's bar says (the page, whether it loads, what it asks), as the JSON text the
+ * viewer keeps up to date: `chrome-pane bar` prints it, with no pane to look at.
+ */
+const barFile = (pid) => path.join(dirOf('agent'), `pane-${pid}.bar.json`);
+export function writeBar(text) {
+  const file = barFile(process.pid);
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+  fs.writeFileSync(`${file}.tmp`, text, { mode: 0o600 });
+  fs.renameSync(`${file}.tmp`, file);
+}
+export const readBar = (pid) => readJson(barFile(pid));
 
 /** The running viewers that show a tab (`all`: those that show none yet, too), the one that changed tab last first. */
 export function listPanes({ all = false } = {}) {
@@ -83,6 +97,45 @@ export function writeAsk(targetId, ask) {
   writeJson(file, { ...ask, at: Date.now() });
 }
 export const readAsk = (targetId) => readJson(path.join(notesDir(), `${safe(targetId)}.ask.json`));
+
+/**
+ * What the controls a multiplexer draws for a pane (Herdr's pane header) ask its viewer to do:
+ * { act, arg }, as a click on the viewer's own bar would. One file each, taken in the order
+ * they were asked: two clicks in a row are two actions.
+ */
+let asked = 0;
+export function pushAct(pid, act, arg = null) {
+  writeJson(path.join(notesDir(), `pane-${pid}.${Date.now()}-${process.pid}-${asked++}.act.json`), { act, arg, at: Date.now() });
+}
+export function takeActs(pid = process.pid) {
+  let names = [];
+  try { names = fs.readdirSync(notesDir()); } catch {}
+  const acts = [];
+  for (const name of names.filter((n) => n.startsWith(`pane-${pid}.`) && n.endsWith('.act.json')).sort()) {
+    const file = path.join(notesDir(), name);
+    const a = readJson(file);
+    try { fs.unlinkSync(file); } catch {}
+    // One that waited: asked of a viewer that was not there to hear it.
+    if (a && typeof a.act === 'string' && Date.now() - a.at < 15000) acts.push(a);
+  }
+  return acts;
+}
+
+/**
+ * Whether the multiplexer of that name drew the controls itself for a pane within the last
+ * hour (its header says so every half minute): a new pane then starts without a bar of its
+ * own, and puts one up if nothing claims it. Older than that, the header may be gone for good.
+ */
+const drawnFile = (host) => path.join(stateDir(), `drawn-by-${safe(host)}`);
+export function drawnBy(host, now = Date.now()) {
+  try { return now - fs.statSync(drawnFile(host)).mtimeMs < 3600000; } catch { return false; }
+}
+export function setDrawnBy(host, drawn) {
+  try {
+    if (drawn) { fs.mkdirSync(stateDir(), { recursive: true, mode: 0o700 }); fs.writeFileSync(drawnFile(host), '', { mode: 0o600 }); }
+    else fs.unlinkSync(drawnFile(host));
+  } catch {}
+}
 
 /**
  * What a tab showed before the action that stopped its page at a dialog: the command that
