@@ -17,10 +17,12 @@ Chrome, signed in as them: what you do there, you do as them.
 - **Act:** `click e12`, `fill e12 "text"`, `select e12 "Option"`, `check e12`, `press Enter`,
   `type "text"`, `hover e12`, `scroll down` (or `up`, `top`, `bottom`, a ref), `back`, `forward`,
   `reload`. A control's name does in place of its ref when no other control has it:
-  `click "Next"`, `fill "Email" "ada@example.org"`. Each action waits for what it starts (a page
-  to load, a save or a search to answer), then prints what it did and only what changed in the
-  page's controls, messages and text (`~` changed, `-` gone, `+` new); a new page prints its
-  snapshot. That is the proof it worked: do not take a snapshot or read the page after it.
+  `click "Next"`, `fill "Email" "ada@example.org"`.
+- An action waits for what it starts (a page to load, a save or a search to answer), then prints
+  what it did and what changed in the page's controls, messages and text: `~` changed, `-` gone,
+  `+` new; a new page prints its snapshot. What it does not list is as it was: a menu you
+  opened is still open. That is the proof it worked: do not take a snapshot or read the page
+  after it.
 - **Several steps you already know:** one `chrome-pane batch`, one action per line on its input.
   With names it goes on across pages, and it stops at the first step that fails:
 

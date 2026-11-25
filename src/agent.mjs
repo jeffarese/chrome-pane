@@ -107,7 +107,7 @@ class Tab {
     this.waiting = new Set();
     // What the page has asked the network for and not been given yet (once `track` is on), and
     // when it last showed a sign of life: a load or a request that ended.
-    this.asked = new Map(); this.stir = 0;
+    this.asked = new Map(); this.stir = 0; this.begin();
     cdp.on('event', (method, p, sid2) => {
       // The tab closed, or Chrome let go of it: whatever waits for the page hears it at once.
       if ((method === 'Target.detachedFromTarget' && p.sessionId === sid) || (method === 'Target.targetDestroyed' && p.targetId === targetId)) {
@@ -116,10 +116,19 @@ class Tab {
       }
       if (sid2 !== sid) return;
       if (method === 'Page.frameStartedLoading' && p.frameId === this.frameId) this.loading = true;
-      else if (method === 'Page.frameStoppedLoading' && p.frameId === this.frameId) { this.loading = false; this.stir = Date.now(); }
-      else if (method === 'Network.requestWillBeSent') { if (ASKS.has(p.type)) this.asked.set(p.requestId, { answered: 0 }); }
+      else if (method === 'Page.frameStoppedLoading' && p.frameId === this.frameId) {
+        this.loading = false; this.stir = Date.now();
+        // A page has loaded (not: the address changed within one): what it asks for now is the load's own.
+        if (this.fresh) { this.fresh = false; this.begin(); for (const r of this.asked.values()) r.first = true; }
+      }
+      // A new page: what the one before it had asked for is no longer waited for.
+      else if (method === 'Page.frameNavigated' && p.frame?.id === this.frameId) { this.asked.clear(); this.fresh = true; }
+      else if (method === 'Network.requestWillBeSent') { if (asks(p)) this.asked.set(p.requestId, { answered: 0, at: Date.now(), ours: sameSite(p.request?.url, p.documentURL), first: this.fresh || (!this.closed && Date.now() - this.since < 400) }); }
       else if (method === 'Network.responseReceived' || method === 'Network.dataReceived') { const r = this.asked.get(p.requestId); if (r) { r.answered ||= Date.now(); r.fed = Date.now(); } }
-      else if (method === 'Network.loadingFinished' || method === 'Network.loadingFailed') { if (this.asked.delete(p.requestId)) this.stir = Date.now(); }
+      else if (method === 'Network.loadingFinished' || method === 'Network.loadingFailed') {
+        const r = this.asked.get(p.requestId);
+        if (r) { this.asked.delete(p.requestId); this.stir = Date.now(); if (r.first) { this.done = this.stir; if (r.at >= this.since) this.closed = true; } }
+      }
       else if (method === 'Page.javascriptDialogOpening') {
         this.dialog = { type: p.type, message: p.message };
         for (const stop of [...this.waiting]) stop();
@@ -169,6 +178,12 @@ class Tab {
     return changed;
   }
 
+  /**
+   * An action begins, or a page has loaded. What the page asks for at once is the action's own:
+   * until the first of those answers is in, or for a moment (a search waits for the typing to end).
+   */
+  begin() { this.since = this.done = Date.now(); this.closed = false; }
+
   /** From here on, knows what the page asks the network for: an action is over when its answers are in. */
   async track() {
     if (!this.tracking) { this.tracking = true; await this.send('Network.enable', { maxTotalBufferSize: 0, maxResourceBufferSize: 0 }).catch(() => {}); }
@@ -179,10 +194,17 @@ class Tab {
    * of it arrives, and not for long: the page may never read it to its end (a save it only
    * needed a yes from), or it has none (a chat's reply, a feed).
    */
-  pending() {
+  pending(others = 2500, later = 700) {
     let n = 0;
     const now = Date.now();
-    for (const r of this.asked.values()) if (!r.answered || (now - r.fed < 150 && now - r.answered < 1500)) n++;
+    for (const r of this.asked.values()) {
+      // Another site's answer (a counter of visits, an ad, a widget) is seldom what the page shows next.
+      if (!r.ours && now - r.at >= others) continue;
+      // Nor, for long, what the page asked for afterwards: what it may show next (GitHub fetches
+      // the issues of a list ahead), a report of what the user did, the next turn of a poll.
+      if (!r.first && now - this.done >= later) continue;
+      if (!r.answered || (now - r.fed < 150 && now - r.answered < 1500)) n++;
+    }
     return n;
   }
 
@@ -230,6 +252,15 @@ class Tab {
 
 // What a page asks for after an action that its next state depends on: data, and code to show it.
 const ASKS = new Set(['XHR', 'Fetch', 'Script']);
+/**
+ * Whether a request is one whose answer the page waits for. Not a worker's own script (it has
+ * no loader, and its answer goes to the worker, never to the page), and not an extension's.
+ */
+const asks = (p) => ASKS.has(p.type) && !!p.loaderId && /^https?:/i.test(p.request?.url ?? '');
+/** Whether two addresses are of one site, by the last two names of their hosts (which takes a.co.uk and b.co.uk for one: it errs on the side of waiting). */
+function sameSite(a, b) {
+  try { const site = (u) => new URL(u).hostname.split('.').slice(-2).join('.'); return site(a) === site(b); } catch { return true; }
+}
 
 const dialogLine = (d) => `The page shows a dialog (${d.type}): ${JSON.stringify(String(d.message).slice(0, 200))}. Answer it: chrome-pane dialog accept, or dialog dismiss`;
 
@@ -240,7 +271,11 @@ const INTERACTIVE = new Set(['button', 'link', 'textbox', 'searchbox', 'combobox
 const LANDMARK = new Set(['banner', 'navigation', 'main', 'complementary', 'contentinfo', 'search', 'form', 'region', 'dialog', 'alertdialog', 'alert', 'status', 'table', 'grid', 'list', 'menu', 'menubar', 'tablist', 'toolbar', 'tree', 'article']);
 const ALWAYS = new Set(['banner', 'navigation', 'main', 'complementary', 'contentinfo', 'search', 'dialog', 'alertdialog', 'alert', 'status']);
 const SKIP = new Set(['InlineTextBox', 'LineBreak', 'none', 'presentation']);
+// What can take the focus and yet is not one control but a holder of them (a dialog a page
+// focuses when it opens, a list of suggestions): its controls have their own lines.
+const HOLDS = new Set([...LANDMARK, 'listbox', 'radiogroup', 'group', 'tabpanel', 'treegrid', 'document', 'application']);
 const VALUED = new Set(['textbox', 'searchbox', 'combobox', 'spinbutton', 'slider', 'textarea']);
+const INLINE = new Set(['strong', 'emphasis', 'code', 'mark', 'subscript', 'superscript', 'time', 'insertion', 'deletion']);
 
 // A field for a password, a code sent to a phone or a card, by what it says of itself.
 const SECRET = /(^|\s)(cc-|one-time-code|\S*password)/;
@@ -385,24 +420,28 @@ const saysLine = (cap, tab, n) => {
  * the page's other words, a block of text at a time: what an action made it say.
  */
 function controlLines(cap, tab) {
-  const lines = new Map(), texts = new Set();
+  const lines = new Map(), words = new Map();
   const walk = (n, quiet, holder) => {
     const role = n.role?.value;
     let told = quiet;
     if (!quiet && n.backendDOMNodeId) {
-      if (kindOf(cap, n)) { told = true; if (place(cap, n) !== 'none') lines.set(`${tab.letter}${n.backendDOMNodeId}`, controlLine(cap, tab, n).replace(' [focused]', '')); }
+      if (kindOf(cap, n)) { told = !HOLDS.has(role); if (place(cap, n) !== 'none') lines.set(`${tab.letter}${n.backendDOMNodeId}`, controlLine(cap, tab, n).replace(' [focused]', '')); }
       else if (!n.ignored && says(n)) { told = true; const line = saysLine(cap, tab, n); if (line) lines.set(`${tab.letter}${n.backendDOMNodeId}`, line); }
     }
-    if (!n.ignored && n.backendDOMNodeId && role !== 'StaticText' && !SKIP.has(role)) holder = n;
-    if (role === 'StaticText' && !told && holder && !texts.has(holder) && place(cap, holder) !== 'none') texts.add(holder);
+    // A block's words are its own: not those of the controls and messages in it, which have
+    // their lines, nor those of a block inside it. What only marks a few words is no block.
+    if (!n.ignored && n.backendDOMNodeId && role !== 'StaticText' && !SKIP.has(role) && !INLINE.has(role)) holder = n;
+    if (role === 'StaticText' && !told && holder) { if (!words.has(holder)) words.set(holder, []); words.get(holder).push(n.name?.value ?? ''); }
     // The options of a closed list say again what the list's own line says.
     const closed = quiet || (role === 'combobox' && prop(n, 'expanded') !== true);
     for (const c of kids(cap, n)) walk(c, closed || told, holder);
   };
   walk(cap.root, false, null);
-  // A block's words without those of the controls and messages in it, which have lines of their own.
-  const plain = (n, top) => (n.role?.value === 'StaticText' ? `${n.name?.value ?? ''} ` : !top && (kindOf(cap, n) || (!n.ignored && says(n))) ? '' : kids(cap, n).map((c) => plain(c, false)).join(''));
-  lines.texts = new Set([...texts].map((h) => plain(h, true).replace(/\s+/g, ' ').trim()).filter(Boolean));
+  lines.texts = new Set();
+  for (const [holder, pieces] of words) {
+    const text = pieces.join(' ').replace(/\s+/g, ' ').trim();
+    if (text && place(cap, holder) !== 'none') lines.texts.add(text);
+  }
   return lines;
 }
 
@@ -605,9 +644,12 @@ function aim(cap, tab, text, verb) {
     const name = norm(nameOf(cap, n));
     if (name === want) exact.push(n); else if (name.includes(want)) part.push(n);
   }
-  let hits = exact.length ? exact : part;
+  // A click on what is only named something like it could be a click on the wrong thing
+  // ("Delete" for "Delete account"): a field, a list or a checkbox may be meant by a part of its name.
+  const press = verb === 'click' || verb === 'hover';
+  let hits = exact.length || press ? exact : part;
   // Words that are no control's name may still be something to click: a plain piece of text.
-  if (!hits.length && (verb === 'click' || verb === 'hover')) {
+  if (!hits.length && press) {
     const seen = new Set();
     for (const n of cap.nodes) {
       if (n.ignored || n.role?.value !== 'StaticText' || norm(n.name?.value) !== want) continue;
@@ -619,11 +661,10 @@ function aim(cap, tab, text, verb) {
     }
   }
   const what = verb === 'fill' ? 'field' : verb === 'select' ? 'list' : fits ? 'checkbox or radio button' : 'control';
+  const list = (nodes) => apart(cap, nodes.slice(0, 8).map((n) => ({ node: n, line: kindOf(cap, n) ? controlLine(cap, tab, n) : `${tab.letter}${n.backendDOMNodeId} ${n.role?.value ?? 'text'} ${quote(nameOf(cap, n) || text, 80)}` }))).join('\n') + (nodes.length > 8 ? `\n… ${nodes.length - 8} more` : '');
+  if (!hits.length && press && part.length) throw new Fail(`no control of the page is named exactly ${JSON.stringify(text)}; these have it in their names, say which by its ref\n${list(part)}`);
   if (!hits.length) throw new NotThere(`no ${what} of the page is named ${JSON.stringify(text)} (a ref looks like ${tab.letter}12; chrome-pane find <text> searches the page)`);
-  if (hits.length > 1) {
-    const lines = apart(cap, hits.slice(0, 8).map((n) => ({ node: n, line: kindOf(cap, n) ? controlLine(cap, tab, n) : `${tab.letter}${n.backendDOMNodeId} ${n.role?.value ?? 'text'} ${quote(nameOf(cap, n) || text, 80)}` })));
-    throw new Fail(`${hits.length} ${what}s are named ${JSON.stringify(text)}: say which by its ref\n${lines.join('\n')}${hits.length > 8 ? `\n… ${hits.length - 8} more` : ''}`);
-  }
+  if (hits.length > 1) throw new Fail(`${hits.length} ${what}s are named ${JSON.stringify(text)}: say which by its ref\n${list(hits)}`);
   return [hits[0].backendDOMNodeId, `${tab.letter}${hits[0].backendDOMNodeId}`];
 }
 
@@ -720,9 +761,9 @@ async function act(tab, cap, verb, a) {
   const needRef = async (rest = false) => {
     if (!a._[0]) throw new Fail(`${verb} needs a ref or a name`);
     for (let tries = 0; ; tries++) {
-      try { return aim(cap, tab, rest ? a._[0] : a._.join(' '), verb); }
+      try { const at = aim(cap, tab, rest ? a._[0] : a._.join(' '), verb); tab.begin(); return at; }
       catch (e) {
-        if (!(e instanceof NotThere) || tries >= 5) throw e;
+        if (!(e instanceof NotThere) || tries >= 3) throw e;
         await sleep(250);
         await tab.identify();
         cap = await capture(tab);
@@ -844,6 +885,13 @@ function stillFor(how) {
     w = globalThis.chromePaneWatch = { at: how === 'start' ? -1e9 : performance.now(), seen: new MutationObserver(() => { w.at = performance.now(); }) };
     w.seen.observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
   }
+  // What is on its way in or out (a dialog that fades, a menu that slides) is a change still going
+  // on. Not what only changes a colour, nor what never ends (a spinner) or lasts (a progress bar).
+  if (how !== 'start') for (const a of document.getAnimations?.() ?? []) {
+    const t = a.playState === 'running' && a.effect?.getComputedTiming?.();
+    if (!t || !(t.endTime - (a.currentTime ?? 0) <= 1000)) continue;
+    if (!/color|shadow|outline|fill|stroke|decoration/.test(a.transitionProperty ?? '')) return 0;
+  }
   return performance.now() - w.at;
 }
 
@@ -855,19 +903,22 @@ function stillFor(how) {
  */
 async function settle(tab, o = {}) {
   const least = o.least ?? 120, still = o.still ?? 80, load = o.load ?? 15000, answers = o.answers ?? 8000, start = Date.now();
-  let moving = 0;
+  const pending = () => tab.pending(o.others);
+  // `watched`: the watch for changes is on in the document the tab shows now (a new page needs a new one).
+  let moving = 0, watched = !tab.loading && o.watched;
   for (;;) {
     if (tab.dialog || tab.gone) return false;
     const since = Date.now() - start;
-    if (tab.loading) { if (since > load) return false; await sleep(20); continue; }
-    if (tab.pending()) { if (since > answers) return true; await sleep(20); continue; }
+    if (tab.loading) { watched = false; if (since > load) return false; await sleep(20); continue; }
+    if (!watched) { watched = true; await tab.run(stillFor, 'ask').catch(() => {}); continue; }
+    if (pending()) { if (since > answers) return true; await sleep(20); continue; }
     const wait = Math.max(least - since, still - (Date.now() - tab.stir));
     if (wait > 0) { await sleep(Math.min(wait, 40)); continue; }
     // A page that never rests (a clock, a ticker) is not waited for.
     if (moving > 1500) return false;
     let rest;
     try { rest = await tab.run(stillFor, 'ask'); } catch (e) { if (e instanceof DialogOpen || e.code === 2) continue; return false; }
-    if (tab.loading || tab.pending()) continue;
+    if (tab.loading || pending()) continue;
     if (rest >= still) return false;
     moving += still - rest;
     await sleep(Math.max(10, still - rest));
@@ -1047,7 +1098,7 @@ export async function runAgent(verb, argv, io = {}) {
         await tab.track();
         tab.loading = await tab.run(function () { return document.readyState !== 'complete'; }).catch(() => false);
         await tab.run(stillFor, 'start').catch(() => {});
-        await settle(tab, { least: 350 });
+        await settle(tab, { least: 350, watched: true });
         if (!tab.dialog) await tab.run(stillFor, 'stop').catch(() => {});
         const controls = new Map(kept.controls);
         controls.texts = new Set(kept.texts);
@@ -1097,8 +1148,9 @@ export async function runAgent(verb, argv, io = {}) {
         }
         tab.loading = await tab.run(function () { return document.readyState !== 'complete'; }).catch(() => true);
       }
-      // What the page fetches to fill itself in is waited for, for a moment: not what it keeps open.
-      await settle(tab, { load: 20000, answers: 3000, least: 0 });
+      // What the page fetches from its own site to fill itself in is waited for, for a moment:
+      // not what it keeps open, nor what other sites send it (ads, counters).
+      await settle(tab, { load: 20000, answers: 3000, others: 0, least: 0 });
       out(await report(tab, null, { whole: true }));
       return 0;
     }
@@ -1166,18 +1218,19 @@ export async function runAgent(verb, argv, io = {}) {
       try {
         note(`${v} ${a._.join(' ')}`.slice(0, 80));
         await tab.run(stillFor, 'start').catch(() => {});
+        tab.begin();
         out(await act(tab, cap, v, a));
         // What is typed is often acted on a moment later (a search as you type): the last step,
         // whose outcome is reported, gives it that moment.
         // Before a next step, what is typed needs hardly any: typing takes the tab nowhere.
         const last = i + 1 === steps.length, text = v === 'fill' || v === 'type';
-        if (v !== 'hover') waiting = await settle(tab, last ? { least: TYPING.has(v) ? 300 : 120 } : text ? { least: 40, still: 40 } : {});
+        if (v !== 'hover') waiting = await settle(tab, { watched: true, ...(last ? { least: TYPING.has(v) ? 300 : 120 } : text ? { least: 40, still: 40 } : {}) });
         if (tab.dialog) { if (i + 1 < steps.length) out(`stopped: ${steps.length - i - 1} steps not done`); break; }
         if (i + 1 < steps.length) { await tab.identify(); cap = await capture(tab); }
       } catch (e) {
         // Not a failure: the action did what it does, and the page now asks something.
         if (e instanceof DialogOpen) { out(`${v} ${a._.join(' ')}: the page opened a dialog`); if (i + 1 < steps.length) out(`stopped: ${steps.length - i - 1} steps not done`); break; }
-        if (steps.length === 1) throw e;
+        if (steps.length === 1) { await tab.run(stillFor, 'stop').catch(() => {}); throw e; }
         failed = e;
         out(`failed at step ${i + 1} (${v} ${a._.join(' ')}): ${e.message}${i + 1 < steps.length ? `; ${steps.length - i - 1} steps not done` : ''}`);
         break;

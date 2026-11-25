@@ -70,16 +70,34 @@ $('pick').onclick = () => { $('menu').hidden = !$('menu').hidden; };
 function choose(o) { $('pick').textContent = o.textContent + ' ▾'; $('menu').hidden = true; }
 $('go').addEventListener('click', async () => { said.textContent = 'sending'; said.textContent = 'sent: ' + await (await fetch('/slow')).text(); });
 </script>'''
-PAGES = {'/': FORM, '/next': NEXT, '/long': LONG, '/esc': ESC, '/pop': POP, '/pay': PAY, '/made': MADE}
+# What pages of the web do: a box that fades in behind a veil and out again, a list that asks
+# for more once it is shown (what the person may want next), and a worker with a script of its own.
+LIVE = '''<!doctype html><title>Live page</title><body style="margin:20px;font:16px sans-serif"><h1>Live</h1>
+<button id=open>Open box</button> <button id=load>Load list</button><p id=list></p><p id=ahead></p>
+<div id=veil hidden style="position:fixed;inset:0;background:#0006;opacity:0;transition:opacity .15s"></div>
+<div id=box role=dialog aria-label="Box" tabindex=-1 hidden style="position:fixed;top:80px;left:80px;padding:20px;background:#fff;opacity:0;transition:opacity .3s">
+<p>Agree to the terms?</p><button id=agree>Agree</button></div>
+<script>
+const $ = (id) => document.getElementById(id), veil = $('veil'), box = $('box');
+const then = (el, f) => el.addEventListener('transitionend', f, { once: true });
+$('open').onclick = () => { veil.hidden = false; veil.offsetWidth; veil.style.opacity = 1; then(veil, () => { box.hidden = false; box.offsetWidth; box.style.opacity = 1; box.focus(); }); };
+$('agree').onclick = () => { box.style.opacity = 0; then(box, () => { box.hidden = veil.hidden = true; veil.style.opacity = 0; }); };
+$('load').onclick = async () => {
+  $('list').textContent = 'list: ' + await (await fetch('/quick')).text();
+  $('ahead').textContent = 'ahead: ' + await (await fetch('/slow')).text();
+};
+new Worker('/worker.js');
+</script>'''
+PAGES = {'/': FORM, '/next': NEXT, '/long': LONG, '/esc': ESC, '/pop': POP, '/pay': PAY, '/made': MADE, '/live': LIVE}
 posts = 0
 
 class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         # An answer that takes its time, as a search or a save does.
         if self.path == '/slow': time.sleep(1.2)
-        body = 'ok' if self.path == '/slow' else PAGES.get(self.path.split('?')[0])
+        body = 'ok' if self.path in ('/slow', '/quick') else 'postMessage(1)' if self.path == '/worker.js' else PAGES.get(self.path.split('?')[0])
         self.send_response(200 if body else 404)
-        self.send_header('Content-Type', 'text/html; charset=utf-8')
+        self.send_header('Content-Type', 'text/javascript' if self.path == '/worker.js' else 'text/html; charset=utf-8')
         self.end_headers()
         self.wfile.write((body or 'not here').encode())
     def do_POST(self):
@@ -344,6 +362,8 @@ code, text, _ = run('fill', 'Remove', 'x')
 step('fill by name: only a field is meant', code == 1 and 'no field of the page is named "Remove"' in text)
 code, text, _ = run('click', 'Remove')
 step('a name two controls have is refused, with what tells them apart', code == 1 and '2 controls are named "Remove"' in text and 'under "First")' in text and 'under "Second")' in text and value('document.getElementById("said").textContent') == '')
+code, text, _ = run('click', 'Cake')
+step('click by name: a part of a name is not taken for the name, and what has it is listed', code == 1 and 'is named exactly "Cake"' in text and 'clickable "Cake ▾"' in text)
 code, text, _ = run('click', 'No such thing')
 step('a name nothing has is said so', code == 1 and 'no control of the page is named "No such thing"' in text)
 code, text, took = run('click', 'Send it')
@@ -363,6 +383,14 @@ def until(what, secs=5.0):
     end = time.time() + secs
     while time.time() < end and not what(): time.sleep(0.05)
     return what()
+code, text, took = run('open', site + '/live')
+step('open: a worker\'s own script is not waited for (%.1f s)' % took, code == 0 and 'button "Open box"' in text and took < 2)
+code, text, _ = run('click', 'Open box')
+step('what fades in is waited for, and a box that takes the focus shows what it holds', code == 0 and re.search(r'^\+ [a-z]\d+ dialog "Box"', text, re.M) is not None and re.search(r'^\+ [a-z]\d+ button "Agree"$', text, re.M) is not None and '+ text "Agree to the terms?"' in text)
+code, text, _ = run('click', 'Agree')
+step('what fades out is waited for', code == 0 and re.search(r'^- [a-z]\d+ dialog "Box"', text, re.M) is not None and re.search(r'^- [a-z]\d+ button "Agree"$', text, re.M) is not None)
+code, text, took = run('click', 'Load list')
+step('what the page asks for once it has its answer is not waited for long (%.1f s)' % took, code == 0 and '+ text "list: ok"' in text and 'ahead: ok' not in text and took < 1.2)
 code, text, _ = run('open', site + '/pay')
 code, text, _ = run('click', ref(text, 'button "Pay now"'))
 step('a form that is sent: the page is its answer', code == 0 and 'h1 "Paid, receipt 1"' in text and posts == 1)
