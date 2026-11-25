@@ -18,6 +18,10 @@
   Claude in Chrome and cua, and the shop's server checks each outcome. It reports time, tokens,
   cost and failures by method, task and tool, and compares two runs. `bench/micro.mjs` times
   chrome-pane's own commands with no model.
+- The README shows the pane in Rex and in Tern (`docs/demo/hosts.sh` takes those pictures, each
+  on a throwaway copy of the app), and its Install section goes step by step: the PATH an agent
+  needs, a first try, what each terminal needs, updating, removing, and the messages a first
+  start can give.
 
 ## 0.1.0
 

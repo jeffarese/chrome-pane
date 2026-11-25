@@ -16,6 +16,24 @@ sh docs/demo/shots.sh          # builds a stage, takes docs/media/preview.png, d
   and their output is what chrome-pane printed; the keys in `tabs.gif` are pressed in a real
   viewer. `ONLY=tabs` takes one of them.
 
+The pictures of Rex and Tern have no kit: `hosts.sh` builds a smaller stage of its own for
+each, a folder `/tmp/cph.XXXXXX` with a home, the same headless Chrome and shop, and a second
+copy of the app that keeps its sessions there.
+
+```sh
+sh docs/demo/hosts.sh          # docs/media/rex.png and tern.png; `hosts.sh tern` takes one
+```
+
+- Tern is started with its own config folder, session daemon and control socket, and takes the
+  picture itself (`tern ctl shot`).
+- Rex is copied into the stage under another bundle id, so its settings are not your Rex's, and
+  started with the stage's home, where it runs a Rex server of its own. Rex starts a block's
+  shell through `login`, as your account, so the scene's session runs the stage's shell
+  directly. Rex draws only while its window can be seen: after 10 seconds with nobody at the
+  keyboard or mouse (`IDLE=<s>`), the stage's window comes to the front for the scene, about 20
+  seconds, and the front goes back. cua-driver takes the picture, so it needs Screen Recording.
+- `KEEP=1` leaves a stage up; `hosts.sh --down <stage>` takes it down.
+
 `docs/media/logo.png` was made with OpenAI's image generation and trimmed; `how-it-works.svg`
 is written by hand.
 

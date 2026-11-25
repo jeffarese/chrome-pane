@@ -28,7 +28,7 @@
 
 ![A Herdr window. In the middle, Claude Code at work on "Speed up the checkout page". To its right, the Chrome pane: a bar that says "Agent: select e6 Express, next day", and under it the checkout page of a made-up tea shop, drawn as in a browser, with the order's total, a form filled in with a name, an email, an address and a city, the delivery set to Express and a ticked gift-wrap box. The sessions sidebar on the left lists the pane as "Checkout · Acme Shop" with Chrome's icon, among the agents at work](docs/media/preview.png)
 
-<p align="center"><sub>In <a href="https://herdr.dev">Herdr</a>, the pane opens beside the agent that asked for it and is listed with the agents. It opens beside the agent in Rex and Tern too. The shop, the sessions and the people in these pictures are made up.</sub></p>
+<p align="center"><sub>In <a href="https://herdr.dev">Herdr</a>, the pane opens beside the agent that asked for it and is listed with the agents. It opens beside the agent in <a href="#see-it-work">Rex and Tern</a> too. The shop, the sessions and the people in these pictures are made up.</sub></p>
 
 The page you want an agent's help with is usually behind a login you already have: the admin
 panel, the cloud console, the ticket, the order you are in the middle of. Terminal browsers and
@@ -66,6 +66,14 @@ is told only what changed.
 tabs, type an address.
 
 ![The Chrome pane alone, showing the shop's checkout. Ctrl+T replaces the page with the list of Chrome's three open tabs; the orders tab is picked and the page "Your orders", signed in as Sam Rivera, is drawn. Ctrl+L turns the bar into "Go to:", an address is entered and the shop's front page is drawn. Alt+Left goes back to the orders](docs/media/tabs.gif)
+
+**In Rex and in Tern.** The same commands, typed in a shell of each. The pane opens to the
+right of the shell, in the same tab, and nothing has to be set up for it: chrome-pane asks Rex
+or Tern for the split itself.
+
+![A Rex window. On the left, a shell where "chrome-pane open http://acme.test/checkout/" printed the page's controls; a "chrome-pane snapshot" lists the whole form, then "chrome-pane fill e2 Sam Rivera" and "chrome-pane select e6 Express, next day" each print what changed, the new delivery price and total among it. On the right, a pane labelled Chrome shows the shop's checkout with the name filled in, Express delivery picked and a total of 59 euros, under a bar that says "Agent: select e6 Express, next day"](docs/media/rex.png)
+
+![A Tern window, light. On the left, a shell where "chrome-pane open http://acme.test/checkout/" printed the page's controls, each with a ref, then "chrome-pane fill e2 Sam Rivera" and "chrome-pane select e6 Express, next day" each print what changed. On the right, the Chrome pane shows the shop's checkout with the name filled in, Express delivery picked and a total of 59 euros, under a bar that says "Agent: select e6 Express, next day"](docs/media/tern.png)
 
 ## Why chrome-pane
 
@@ -126,18 +134,78 @@ for Windows.
 
 ## Install
 
+**1. Check Node and Chrome.** `node --version` says 22 or more. Chrome's version is in
+`chrome://version`: 144 or more.
+
+**2. Clone it and run the installer**, from wherever you keep code. The clone is what runs:
+keep it where it is.
+
 ```sh
 git clone https://github.com/jeffarese/chrome-pane && cd chrome-pane && ./install.sh
 ```
 
-That links `~/.local/bin/chrome-pane` to the clone, gives the Herdr app here the pane's name and
-icon, and links the agents' skill where Claude Code and Codex look for skills. `./install.sh
---remove` takes all of it out.
+The installer:
 
-Then, once, in Chrome: open `chrome://inspect/#remote-debugging` and turn remote debugging on.
-The first time a viewer opens, **Chrome asks you to allow the connection**: accept it, on the
-computer Chrome runs on. chrome-pane keeps that one connection open until Chrome quits, so
-Chrome asks once per start. `chrome-pane stop` ends it.
+- links `~/.local/bin/chrome-pane` to the clone (`CHROME_PANE_BIN=<folder> ./install.sh` puts
+  the link in another folder);
+- gives the Herdr app on this computer the pane's name and icon, if Herdr is installed;
+- links the agents' skill where Claude Code and Codex look for skills ([the skill](#for-agents)).
+
+If it ends with "Add ~/.local/bin to your PATH", do that in your shell's startup file (for zsh,
+`export PATH="$HOME/.local/bin:$PATH"` in `~/.zshrc`) and open a new terminal. An agent whose
+PATH is fixed in its own settings (Claude Code's `env.PATH`, for one) needs that folder in it
+too, or it is told `chrome-pane: command not found`.
+
+**3. Turn on remote debugging in Chrome**, once: open `chrome://inspect/#remote-debugging` and
+switch it on.
+
+**4. Try it.** In a terminal:
+
+```sh
+chrome-pane tabs                 # lists Chrome's tabs
+chrome-pane example.com          # shows a new tab at example.com in this terminal; Ctrl+Q quits
+```
+
+The first time, **Chrome asks you to allow the connection**: accept it, on the computer Chrome
+runs on. chrome-pane keeps that one connection open until Chrome quits, so Chrome asks once
+per start. `chrome-pane stop` ends it.
+
+Then ask an agent in Herdr, Rex or Tern to open a page in the browser pane: the pane opens to
+the right of the agent. Or type `chrome-pane --pane example.com` there yourself.
+
+### What each terminal needs
+
+| | |
+| --- | --- |
+| **[Herdr](https://herdr.dev)** | Nothing more: the installer gave the Herdr app the pane's name and icon. If you install Herdr later, run `chrome-pane herdr`. To watch from another computer, see [From another computer](#from-another-computer). |
+| **Rex** | Nothing. chrome-pane opens the pane with Rex's own `rex` command, which it finds through what Rex gives its panes (`REX_BIN_DIR`), then on the PATH. |
+| **Tern** | Nothing. chrome-pane opens the pane with Tern's own `tern` command, which it finds through what Tern gives its panes (`TERN_EXE`), then on the PATH and in `/Applications/Tern.app`. |
+| **Ghostty, kitty** | Nothing. There is no pane to open for you: run `chrome-pane` in the split you want it in. |
+
+### For your agents
+
+The installer links `skills/chrome-pane` into `~/.claude/skills`, `~/.agents/skills` and
+`~/.codex/skills`, for each of `~/.claude`, `~/.agents` and `~/.codex` that exists. An agent you
+install later gets it with `chrome-pane skill install`. For any other agent, `chrome-pane skill`
+prints the skill, to paste into its instructions. Codex has to run the commands outside its
+sandbox, which blocks unix sockets.
+
+### Update and remove
+
+`git pull` in the clone updates it: the link and the skill point into the clone. If you move the
+clone, run `./install.sh` again from its new place. `./install.sh --remove` takes it all out: the
+link, Herdr's name and icon, and the skill.
+
+### When it does not work
+
+| It says | What to do |
+| --- | --- |
+| `chrome-pane: command not found` | `~/.local/bin` is not on that PATH: the shell's, or the agent's (step 2). |
+| `node 22 or newer is needed`, or `Node 22 or newer is needed, and this is Node …` | Install Node 22 or newer, or name one with `CHROME_PANE_NODE=/path/to/node`. |
+| `Chrome has remote debugging off` | Step 3. With Chrome running. |
+| `Waiting for Chrome: accept its “Allow remote debugging?” prompt`, or an agent's `Chrome has not allowed the connection yet` | Chrome's prompt is open on the computer Chrome runs on, perhaps behind other windows: accept it. |
+| `There is no Chrome pane, and this terminal is not one of Herdr, Rex or Tern` | The agent runs outside Herdr, Rex and Tern. Run `chrome-pane` in a terminal first; the agent's commands then act on that pane. |
+| `Rex did not open the pane: rex was not found` (or Tern's) | The agent runs with an environment that lost what its pane was given: start it from a Rex or Tern pane, or put `rex` or `tern` on its PATH. |
 
 ## Use
 
@@ -258,11 +326,8 @@ field's value; writing a picture over a file. They know such a field by its type
 runs whatever JavaScript it is given: these are limits for an agent that means well, not a
 wall. [SECURITY.md](SECURITY.md) says what is and is not protected.
 
-**The skill.** `chrome-pane skill install` (which `./install.sh` runs) links
-`skills/chrome-pane` into `~/.claude/skills`, `~/.agents/skills` and `~/.codex/skills`, for
-those of `~/.claude`, `~/.agents` and `~/.codex` that exist. `chrome-pane skill` prints it, for
-any other agent's instructions. In Codex the commands need to run outside its sandbox, which
-blocks unix sockets.
+**The skill** (`skills/chrome-pane`) tells an agent all of this. `./install.sh` gives it to
+Claude Code and Codex, and `chrome-pane skill` prints it for any other agent ([how](#for-your-agents)).
 
 ## From another computer
 
