@@ -115,7 +115,7 @@ export class Viewer {
     for (const ev of ['end', 'close']) this.inp.on(ev, () => this.quit());
     process.on('exit', () => { unregisterPane(); this.restore(); });
     // An agent's command finds the tab to act on by the pane of its own Herdr tab.
-    try { this.where = whereAmI(); } catch {}
+    try { this.where = whereAmI(); } catch { if (process.env.HC_TERMINAL_ID) this.where = { terminal: process.env.HC_TERMINAL_ID }; }
     // Known from the start, before it shows a tab: an agent asking for a page then asks this
     // pane, and does not open a second one beside it.
     this.announce();

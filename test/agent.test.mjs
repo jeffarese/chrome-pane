@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { keyEvent, webAddress, words } from '../src/agent.mjs';
+import { whereAmI } from '../src/herdr.mjs';
 
 test('a batch line splits into words, quotes keeping them together', () => {
   assert.deepEqual(words('fill e12 "Ada Lovelace"'), ['fill', 'e12', 'Ada Lovelace']);
@@ -29,4 +30,10 @@ test('keys by their names, with modifiers', () => {
   assert.ok(k.ctrl && k.shift && k.name === 'a');
   assert.equal(keyEvent('ctrl++').name, '+');
   assert.throws(() => keyEvent('hyper+a'), /not a key/);
+});
+
+test('a pane that chrome-pane opened knows where it is without asking Herdr', () => {
+  // The core that starts a pane may have no hc on its PATH: the place comes with the pane.
+  assert.deepEqual(whereAmI({ HC_TERMINAL_ID: 't9', CHROME_PANE_SPACE: 'sp1', CHROME_PANE_TAB: 'tb2', PATH: '/nowhere' }), { space: 'sp1', tab: 'tb2', terminal: 't9' });
+  assert.throws(() => whereAmI({}), /not a Herdr terminal/);
 });

@@ -14,7 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { canConnect } from './bridge.mjs';
 import { connect } from './cdp.mjs';
-import { openPane, whereAmI } from './herdr.mjs';
+import { openPane, panePids, whereAmI } from './herdr.mjs';
 import { keyCalls } from './keys.mjs';
 import { listPanes, readDoc, writeAsk, writeDoc, writeNote } from './panes.mjs';
 import { socketPath, stateDir } from './paths.mjs';
@@ -723,12 +723,17 @@ async function shot(tab, o) {
 // ---------------------------------------------------------------- one command
 
 /** The pane whose tab to act on: the one of this Herdr tab. */
-function paneHere() {
-  const panes = listPanes();
+function paneHere(opts = {}) {
+  const panes = listPanes(opts);
   let here = null;
   try { here = whereAmI(); } catch {}
   // Outside Herdr there is no "this tab": the pane used last.
-  return (here ? panes.find((p) => p.space === here.space && p.tab === here.tab) : panes[0]) ?? null;
+  if (!here) return panes[0] ?? null;
+  const said = panes.find((p) => p.space === here.space && p.tab === here.tab);
+  if (said) return said;
+  // A pane that could not find out where it is says nothing of it: Herdr knows whose pid is in this tab.
+  const pids = panePids(here);
+  return panes.find((p) => pids.includes(p.pid)) ?? null;
 }
 
 async function bridge(o) {
@@ -743,20 +748,22 @@ async function bridge(o) {
 async function openPaneAt(url) {
   let here = null;
   try { here = whereAmI(); } catch {}
-  const mine = (p) => !here || (p.space === here.space && p.tab === here.tab);
   // A pane that is there but shows no tab (its list of tabs, or it waits for Chrome's prompt)
   // is asked to open the address: never a second pane beside it.
-  const idle = listPanes({ all: true }).find((p) => mine(p) && !p.targetId);
+  const idle = paneHere({ all: true });
   if (!idle && !here) throw new Fail('There is no Chrome pane, and this is not a Herdr terminal to open one in. Run chrome-pane in a terminal first.', 2);
-  const since = Date.now();
-  if (idle) writeAsk(`pane-${idle.pid}`, { open: url }); else openPane([url]);
+  let pids = idle ? [idle.pid] : panePids(here);
+  // A pane of this tab that has not said anything yet (it is starting) is waited for, too.
+  const opened = !idle && !pids.length;
+  if (idle) writeAsk(`pane-${idle.pid}`, { open: url });
+  else if (opened) pids = panePids(here, openPane([url]));
   for (let i = 0; i < 150; i++) {
     await sleep(100);
-    const pane = listPanes().find((p) => mine(p) && (idle ? p.pid === idle.pid : p.at >= since));
+    const pane = listPanes().find((p) => pids.includes(p.pid));
     if (pane) return pane.targetId;
   }
   if (idle) writeAsk(`pane-${idle.pid}`, null);
-  throw new Fail(`The pane ${idle ? 'is there' : 'opened'} but shows no tab yet: Chrome may be asking the person to allow the connection. Try again once they have.`, 2);
+  throw new Fail(`The pane ${opened ? 'opened' : 'is there'} but shows no tab yet: Chrome may be asking the person to allow the connection. Try again once they have (it will not open a second pane).`, 2);
 }
 
 /** Runs one agent command. Resolves to its exit code; what it has to say goes to `out`. */

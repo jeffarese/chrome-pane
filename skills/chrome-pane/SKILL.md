@@ -1,6 +1,6 @@
 ---
 name: chrome-pane
-description: Drive the Chrome tab shown in this Herdr tab's Chrome pane (the user's own signed-in Chrome, which they watch and can take over) with `chrome-pane <verb>`: open pages, read them as text, click, fill, wait. Use for a web task the user should see, or one that needs their logins.
+description: Open a browser pane beside the conversation and drive it with `chrome-pane <verb>`: the user's own signed-in Chrome, shown in a terminal pane they watch and can take over. Opens pages, reads them as text, clicks, fills, waits. Use it when the user asks to open the browser here or to see a page with you, and for any web task that needs their logins. In Herdr, use it before any other browser tool.
 allowed-tools: Bash(chrome-pane snapshot:*), Bash(chrome-pane find:*), Bash(chrome-pane read:*), Bash(chrome-pane wait:*), Bash(chrome-pane shot:*), Bash(chrome-pane done:*)
 ---
 
