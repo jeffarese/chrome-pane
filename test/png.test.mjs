@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import zlib from 'node:zlib';
-import { changedCells, decodePng, encodePng } from '../src/png.mjs';
+import { changedCells, crcByHand, decodePng, encodePng } from '../src/png.mjs';
 
 /** A picture w by h whose pixel at x, y is f(x, y), three bytes each. */
 function picture(w, h, f) {
@@ -56,4 +56,10 @@ test('what changed between two pictures, in cells', () => {
   const c = picture(100, 80, (x, y) => (y === 0 && x === 0) || (y === 79 && x === 99) ? [9, 9, 9] : plain(x, y));
   assert.deepEqual(changedCells(a, c, 10, 20).rects, [{ c0: 0, c1: 1, r0: 0, r1: 1 }, { c0: 9, c1: 10, r0: 3, r1: 4 }]);
   assert.equal(changedCells(a, picture(90, 80, plain), 10, 20), null);
+});
+
+test('the checksum by hand is zlib\'s', () => {
+  const a = Buffer.from('IHDR'), b = Buffer.from([0, 1, 2, 250, 251, 252, 253, 254, 255]);
+  assert.equal(crcByHand(Buffer.from('123456789')), 0xcbf43926);
+  if (zlib.crc32) assert.equal(crcByHand(b, crcByHand(a)), zlib.crc32(b, zlib.crc32(a)));
 });

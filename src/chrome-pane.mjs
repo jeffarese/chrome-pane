@@ -5,10 +5,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runAgent, VERBS } from './agent.mjs';
-import { runBridge } from './bridge.mjs';
+import { BRIDGE, canConnect, runBridge } from './bridge.mjs';
 import { connect } from './cdp.mjs';
 import { openPane } from './herdr.mjs';
+import { ours } from './panes.mjs';
 import { logPath, pidPath, socketPath } from './paths.mjs';
+import { oneLine } from './util.mjs';
 import { Viewer } from './viewer.mjs';
 
 const HELP = `chrome-pane: your own Chrome, shown and driven in a terminal pane
@@ -99,10 +101,15 @@ function skill(argv) {
 
 async function main() {
   const argv = process.argv.slice(2);
+  if (Number(process.versions.node.split('.')[0]) < 22) {
+    throw new Error(`Node 22 or newer is needed, and this is Node ${process.versions.node} (${process.execPath}). CHROME_PANE_NODE names another.`);
+  }
   if (argv[0] === '--version' || argv[0] === '-v' || argv[0] === 'version') {
     return console.log(JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version);
   }
+  const asksHelp = (args) => { const end = args.indexOf('--'); return (end < 0 ? args : args.slice(0, end)).some((a) => a === '--help' || a === '-h'); };
   if (VERBS.has(argv[0])) {
+    if (asksHelp(argv)) return console.log(HELP);
     const code = await runAgent(argv[0], argv.slice(1));
     // Leaves once what it said is written: a pipe takes a long answer in pieces.
     return void process.stdout.write('', () => process.exit(code));
@@ -111,6 +118,7 @@ async function main() {
   const cmd = commands.has(argv[0]) ? argv.shift() : null;
   if (cmd === 'skill') return skill(argv);
   if (cmd === 'herdr') {
+    if (asksHelp(argv)) return console.log('chrome-pane herdr [--home <the Herdr app\'s folder>] [--remove]\n  Gives the Herdr app on this computer the name and icon for the pane (in its programs.json), or takes them out.');
     // The name and icon are the Herdr app's to keep: herdr/install.mjs writes them in its programs.json.
     const r = spawnSync(process.execPath, [fileURLToPath(new URL('../herdr/install.mjs', import.meta.url)), ...argv], { stdio: 'inherit' });
     process.exit(r.status ?? 1);
@@ -121,10 +129,19 @@ async function main() {
   if (cmd === 'bridge') return runBridge(o);
 
   if (cmd === 'status' || cmd === 'stop') {
+    // The pid in the file is a bridge's only if that process is one: a file outlives its bridge
+    // (a kill, a power cut), and the number may be some other program's by now.
     let pid = null;
-    try { pid = Number(fs.readFileSync(pidPath(), 'utf8')); process.kill(pid, 0); } catch { pid = null; }
-    if (!pid) return console.log('The bridge is not running.');
-    if (cmd === 'status') return console.log(`The bridge is running (pid ${pid}, socket ${socketPath()}, log ${logPath()}).`);
+    try { pid = Number(fs.readFileSync(pidPath(), 'utf8')); } catch {}
+    if (!ours(pid, BRIDGE)) {
+      console.log('The bridge is not running.');
+      if (cmd === 'status') process.exitCode = 1;
+      return;
+    }
+    if (cmd === 'status') {
+      const answers = await canConnect(o.socket || socketPath());
+      return console.log(`The bridge is running (pid ${pid}, socket ${socketPath()}, log ${logPath()}).${answers ? '' : ' Its socket does not answer: chrome-pane stop, then open a pane again.'}`);
+    }
     process.kill(pid, 'SIGTERM');
     return console.log('Stopped the bridge.');
   }

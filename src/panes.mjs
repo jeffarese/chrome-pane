@@ -5,12 +5,24 @@
 // tab (agent/<tab>.json), which the viewers of that tab show in their bar. Files, not messages
 // through the bridge: the bridge holds the one connection Chrome approved, and changing what it
 // does would mean restarting it and asking the person to approve again.
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { stateDir } from './paths.mjs';
 
 const dirOf = (name) => path.join(stateDir(), name);
-const alive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
+
+/**
+ * Is the process with that pid one of chrome-pane's? A pid stays in a file after its process
+ * died (a kill, a power cut), and the system then gives the number to some other program.
+ */
+export function ours(pid, word = 'chrome-pane') {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try { process.kill(pid, 0); } catch { return false; }
+  const r = spawnSync('ps', ['-ww', '-o', 'command=', '-p', String(pid)], { encoding: 'utf8' });
+  if (r.error) return true; // no ps to ask: the pid is alive, which is all there is to know
+  return r.status === 0 && r.stdout.includes(word);
+}
 
 function writeJson(file, value) {
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
@@ -24,16 +36,16 @@ const readJson = (file) => { try { return JSON.parse(fs.readFileSync(file, 'utf8
  * This viewer shows that tab (targetId: null while it shows none). `where`: its Herdr space, tab
  * and terminal, if any. `dialog`: the alert or question the page stopped at, if it did.
  */
-export function registerPane(targetId, where = {}, dialog = null) {
-  writeJson(path.join(dirOf('panes'), `${process.pid}.json`), { pid: process.pid, targetId, at: Date.now(), ...where, dialog });
+export function registerPane(targetId, where = {}, dialog = null, at = Date.now()) {
+  writeJson(path.join(dirOf('panes'), `${process.pid}.json`), { pid: process.pid, targetId, at, ...where, dialog });
 }
 
 export function unregisterPane() {
   try { fs.unlinkSync(path.join(dirOf('panes'), `${process.pid}.json`)); } catch {}
 }
 
-/** The running viewers that show a tab, the one that changed tab last first. */
-export function listPanes() {
+/** The running viewers that show a tab (`all`: those that show none yet, too), the one that changed tab last first. */
+export function listPanes({ all = false } = {}) {
   let names = [];
   try { names = fs.readdirSync(dirOf('panes')); } catch {}
   const panes = [];
@@ -41,8 +53,8 @@ export function listPanes() {
     if (!name.endsWith('.json')) continue;
     const file = path.join(dirOf('panes'), name);
     const p = readJson(file);
-    if (!p || !alive(p.pid)) { try { fs.unlinkSync(file); } catch {} continue; }
-    if (p.targetId) panes.push(p);
+    if (!p || !ours(p.pid)) { try { fs.unlinkSync(file); } catch {} continue; }
+    if (p.targetId || all) panes.push(p);
   }
   return panes.sort((a, b) => b.at - a.at);
 }
@@ -73,4 +85,15 @@ export const readAsk = (targetId) => readJson(path.join(notesDir(), `${safe(targ
 
 /** Per tab, the document its refs were given for: { loaderId, gen }. */
 export const readDoc = (targetId) => readJson(path.join(dirOf('docs'), `${safe(targetId)}.json`));
-export const writeDoc = (targetId, doc) => writeJson(path.join(dirOf('docs'), `${safe(targetId)}.json`), doc);
+export function writeDoc(targetId, doc) {
+  writeJson(path.join(dirOf('docs'), `${safe(targetId)}.json`), doc);
+  // Tabs close without anyone telling: what was kept about one a week ago is of no use.
+  for (const dir of [dirOf('docs'), notesDir()]) {
+    let names = [];
+    try { names = fs.readdirSync(dir); } catch {}
+    for (const name of names) {
+      const file = path.join(dir, name);
+      try { if (Date.now() - fs.statSync(file).mtimeMs > 7 * 86400000) fs.unlinkSync(file); } catch {}
+    }
+  }
+}

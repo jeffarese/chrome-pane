@@ -53,12 +53,22 @@ export function decodePng(input) {
   return { w, h, bpp, color, stride, data: d };
 }
 
+// zlib.crc32 came with Node 22.2: the same sum by hand for the two releases before it.
+let table = null;
+export function crcByHand(data, crc = 0) {
+  table ??= Uint32Array.from({ length: 256 }, (_, n) => { for (let k = 0; k < 8; k++) n = n & 1 ? 0xedb88320 ^ (n >>> 1) : n >>> 1; return n >>> 0; });
+  crc = ~crc >>> 0;
+  for (const byte of data) crc = table[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+  return ~crc >>> 0;
+}
+const crc32 = zlib.crc32 ?? crcByHand;
+
 function chunk(type, data) {
   const head = Buffer.alloc(8);
   head.writeUInt32BE(data.length, 0);
   head.write(type, 4, 'latin1');
   const crc = Buffer.alloc(4);
-  crc.writeUInt32BE(zlib.crc32(data, zlib.crc32(head.subarray(4))) >>> 0, 0);
+  crc.writeUInt32BE(crc32(data, crc32(head.subarray(4))) >>> 0, 0);
   return Buffer.concat([head, data, crc]);
 }
 

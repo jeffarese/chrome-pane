@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 
 const args = process.argv.slice(2);
 const at = args.indexOf('--home');
+if (at >= 0 && !args[at + 1]) { console.error('--home needs the Herdr app\'s folder'); process.exit(1); }
 const home = at >= 0 ? args[at + 1] : process.env.HERDR_APP_HOME || path.join(os.homedir(), '.config', 'herdr-app');
 const remove = args.includes('--remove');
 if (!fs.existsSync(home)) { console.error(`no Herdr app home at ${home}`); process.exit(1); }

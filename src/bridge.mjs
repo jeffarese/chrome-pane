@@ -7,7 +7,28 @@
 import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
+import { ours } from './panes.mjs';
 import { chromeWsUrl, pidPath, socketPath } from './paths.mjs';
+
+/** What a bridge's command line has, to tell its pid from a number some other program got later. */
+export const BRIDGE = 'chrome-pane.mjs bridge';
+
+/**
+ * One bridge at a time: the pid file is made only if there is none, which the system decides
+ * for two bridges starting at once (two panes opened together). A file left by a bridge that
+ * died is taken over.
+ */
+function claim() {
+  for (let i = 0; i < 3; i++) {
+    try { fs.writeFileSync(pidPath(), String(process.pid), { flag: 'wx', mode: 0o600 }); return true; }
+    catch (e) { if (e.code !== 'EEXIST') throw e; }
+    let pid = 0;
+    try { pid = Number(fs.readFileSync(pidPath(), 'utf8')); } catch {}
+    if (pid !== process.pid && ours(pid, BRIDGE)) return false;
+    try { fs.unlinkSync(pidPath()); } catch {}
+  }
+  return false;
+}
 
 export function canConnect(sock) {
   return new Promise((resolve) => {
@@ -21,7 +42,7 @@ export async function runBridge(opts = {}) {
   const sock = opts.socket || socketPath();
   if (Buffer.byteLength(sock) > 100) throw new Error(`the socket path is too long for a unix socket: ${sock} (set CHROME_PANE_STATE to a shorter folder)`);
   fs.mkdirSync(path.dirname(sock), { recursive: true, mode: 0o700 });
-  if (await canConnect(sock)) { console.error('chrome-pane: the bridge is already running'); return; }
+  if ((await canConnect(sock)) || !claim()) { console.error('chrome-pane: the bridge is already running'); return; }
   try { fs.unlinkSync(sock); } catch {}
 
   const log = (...a) => console.error(new Date().toISOString(), ...a);
@@ -51,7 +72,7 @@ export async function runBridge(opts = {}) {
     for (const c of clients) { tell(c, news()); c.end(); }
     server.close();
     try { fs.unlinkSync(sock); } catch {}
-    try { fs.unlinkSync(pidPath()); } catch {}
+    try { if (Number(fs.readFileSync(pidPath(), 'utf8')) === process.pid) fs.unlinkSync(pidPath()); } catch {}
     try { ws?.close(); } catch {}
     setTimeout(() => process.exit(code), 150);
   }
@@ -93,7 +114,6 @@ export async function runBridge(opts = {}) {
   server.on('error', (e) => { log('socket:', e.message); process.exit(1); });
   await new Promise((r) => server.listen(sock, r));
   fs.chmodSync(sock, 0o600);
-  fs.writeFileSync(pidPath(), String(process.pid));
   process.on('SIGTERM', () => stop('stopped'));
   process.on('SIGINT', () => stop('stopped'));
 
@@ -118,9 +138,15 @@ export async function runBridge(opts = {}) {
       pending.delete(m.id);
       if (!p) return;
       if (!p.client) { if (p.method === 'Browser.getVersion' && m.result) product = m.result.product; return; }
-      if (p.method === 'Target.attachToTarget' && m.result?.sessionId && clients.has(p.client)) {
-        sessions.set(m.result.sessionId, p.client);
-        p.client.sessions.add(m.result.sessionId);
+      if (p.method === 'Target.attachToTarget' && m.result?.sessionId) {
+        if (clients.has(p.client)) {
+          sessions.set(m.result.sessionId, p.client);
+          p.client.sessions.add(m.result.sessionId);
+        } else {
+          // Whoever asked left before Chrome answered: nobody would ever let go of the tab.
+          toChrome(null, { method: 'Target.detachFromTarget', params: { sessionId: m.result.sessionId } });
+          return;
+        }
       }
       if (p.detaches && !m.error) { sessions.delete(p.detaches); p.client.sessions.delete(p.detaches); }
       m.id = p.id;

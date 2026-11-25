@@ -23,6 +23,7 @@ function startBridge(opts) {
   const main = fileURLToPath(new URL('./chrome-pane.mjs', import.meta.url));
   const args = [main, 'bridge'];
   if (opts.userDataDir) args.push('--user-data-dir', opts.userDataDir);
+  if (opts.socket) args.push('--socket', opts.socket);
   spawn(process.execPath, args, { detached: true, stdio: ['ignore', log, log], env: process.env }).unref();
   fs.closeSync(log);
 }

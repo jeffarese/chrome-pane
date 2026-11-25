@@ -33,8 +33,10 @@ export function whereAmI(env = process.env) {
 
 export function openPane(viewArgs, env = process.env) {
   const { space, tab } = whereAmI(env);
-  // The log a pane is asked to keep is asked of the pane, which is another process.
-  const logs = ['CHROME_PANE_DEBUG', 'CHROME_PANE_TRACE'].filter((k) => env[k]).map((k) => `${k}=${env[k]}`);
+  // The pane is another process, started by Herdr's core with the core's environment: what
+  // the caller was told about chrome-pane (which state folder, which browser, a log) goes along.
+  const logs = ['CHROME_PANE_STATE', 'XDG_STATE_HOME', 'CHROME_PANE_SOCKET', 'CHROME_PANE_USER_DATA_DIR', 'CHROME_PANE_WS', 'CHROME_PANE_DEBUG', 'CHROME_PANE_TRACE']
+    .filter((k) => env[k]).map((k) => `${k}=${env[k]}`);
   const out = hc(['run', '--bg', '--json', '--no-parent', '--no-notify', '--cwd', os.homedir(),
     '--label', `herdr.space=${space}`, '--label', `herdr.tab=${tab}`, '--label', 'chrome-pane=1',
     '--', ...(logs.length ? ['/usr/bin/env', ...logs] : []), process.execPath, main, 'view', ...viewArgs]);

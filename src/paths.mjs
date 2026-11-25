@@ -20,7 +20,13 @@ function userDataDirs() {
       .map((d) => path.join(base, d));
   }
   const base = process.env.XDG_CONFIG_HOME || path.join(home, '.config');
-  return ['google-chrome', 'google-chrome-beta', 'chromium', 'BraveSoftware/Brave-Browser', 'microsoft-edge'].map((d) => path.join(base, d));
+  return [
+    ...['google-chrome', 'google-chrome-beta', 'google-chrome-unstable', 'chromium', 'BraveSoftware/Brave-Browser', 'microsoft-edge'].map((d) => path.join(base, d)),
+    // The same browsers as a snap or a flatpak keep their folder elsewhere.
+    path.join(home, 'snap/chromium/common/chromium'),
+    path.join(home, '.var/app/com.google.Chrome/config/google-chrome'),
+    path.join(home, '.var/app/org.chromium.Chromium/config/chromium'),
+  ];
 }
 
 /** The browser's DevTools WebSocket, from its DevToolsActivePort file. */
@@ -29,11 +35,16 @@ export function chromeWsUrl(opts = {}) {
   const dirs = opts.userDataDir || process.env.CHROME_PANE_USER_DATA_DIR
     ? [opts.userDataDir || process.env.CHROME_PANE_USER_DATA_DIR]
     : userDataDirs();
+  // The newest file: a browser that crashed leaves its own behind, and the one running now
+  // wrote later.
+  let best = null;
   for (const dir of dirs) {
-    let text;
-    try { text = fs.readFileSync(path.join(dir, 'DevToolsActivePort'), 'utf8'); } catch { continue; }
+    let text, at;
+    const file = path.join(dir, 'DevToolsActivePort');
+    try { text = fs.readFileSync(file, 'utf8'); at = fs.statSync(file).mtimeMs; } catch { continue; }
     const [port, wsPath] = text.trim().split('\n');
-    if (/^\d+$/.test(port) && wsPath) return `ws://127.0.0.1:${port}${wsPath}`;
+    if (/^\d+$/.test(port) && wsPath && (!best || at > best.at)) best = { at, url: `ws://127.0.0.1:${port}${wsPath}` };
   }
+  if (best) return best.url;
   throw new Error('Chrome has remote debugging off. Turn it on at chrome://inspect/#remote-debugging');
 }
