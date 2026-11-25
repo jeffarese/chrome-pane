@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Checkout · Acme Shop</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { --ink: #1c2330; --soft: #5b6676; --line: #e3e7ee; --accent: #2f6fed; --bg: #f6f8fb; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.5 -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; color: var(--ink); background: var(--bg); }
+  header { display: flex; align-items: center; gap: 24px; padding: 14px 28px; background: #fff; border-bottom: 1px solid var(--line); }
+  header .logo { font-weight: 700; font-size: 18px; letter-spacing: -0.2px; }
+  header .logo span { color: var(--accent); }
+  header nav { display: flex; gap: 18px; margin-left: auto; }
+  header nav a { color: var(--soft); text-decoration: none; }
+  main { max-width: 860px; margin: 28px auto; padding: 0 28px; display: grid; grid-template-columns: 1fr 280px; gap: 28px; }
+  h1 { font-size: 24px; margin: 0 0 4px; letter-spacing: -0.3px; }
+  h2 { font-size: 15px; margin: 22px 0 10px; }
+  p.lead { color: var(--soft); margin: 0 0 8px; }
+  form { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  label { display: grid; gap: 4px; font-size: 13px; color: var(--soft); }
+  label.wide { grid-column: 1 / -1; }
+  input, select { font: inherit; color: var(--ink); padding: 9px 11px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+  input:focus, select:focus { outline: 2px solid color-mix(in srgb, var(--accent) 35%, transparent); border-color: var(--accent); }
+  .check { display: flex; align-items: center; gap: 8px; grid-column: 1 / -1; color: var(--ink); font-size: 14px; }
+  button { font: inherit; font-weight: 600; padding: 11px 18px; border: 0; border-radius: 8px; color: #fff; background: var(--accent); cursor: pointer; }
+  button.quiet { color: var(--ink); background: #fff; border: 1px solid var(--line); }
+  .actions { grid-column: 1 / -1; display: flex; gap: 10px; margin-top: 6px; }
+  aside { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 18px; align-self: start; }
+  aside h2 { margin-top: 0; }
+  aside table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  aside td { padding: 6px 0; }
+  aside td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+  aside tr.total td { border-top: 1px solid var(--line); padding-top: 10px; font-weight: 700; }
+  @media (max-width: 720px) {
+    header { padding: 12px 18px; gap: 14px; }
+    header nav { gap: 12px; font-size: 14px; }
+    main { grid-template-columns: 1fr; margin: 20px auto; padding: 0 18px; gap: 20px; }
+    aside { order: -1; }
+  }
+  [role=status] { grid-column: 1 / -1; min-height: 22px; color: #18794e; font-weight: 600; margin: 0; }
+</style>
+<header>
+  <div class="logo">acme<span>.</span>shop</div>
+  <nav aria-label="Shop"><a href="#">Tea</a><a href="#">Teaware</a><a href="#">Gifts</a><a href="#">Cart (2)</a></nav>
+</header>
+<main>
+  <section>
+    <h1>Checkout</h1>
+    <p class="lead">Two items, sent from our Lisbon warehouse.</p>
+    <h2>Where should we send it?</h2>
+    <form onsubmit="return false">
+      <label>Full name <input id="name" autocomplete="name"></label>
+      <label>Email <input id="email" type="email" autocomplete="email"></label>
+      <label class="wide">Address <input id="address" autocomplete="street-address"></label>
+      <label>City <input id="city"></label>
+      <label>Delivery
+        <select id="delivery" onchange="price()">
+          <option value="4.5">Standard, 3 to 5 days</option>
+          <option value="9">Express, next day</option>
+          <option value="0">Pick up in store</option>
+        </select>
+      </label>
+      <label class="check"><input id="gift" type="checkbox" onchange="price()"> Wrap it as a gift (+ €2.00)</label>
+      <div class="actions">
+        <button onclick="toPayment()">Continue to payment</button>
+        <button class="quiet" type="button">Back to cart</button>
+      </div>
+      <p id="status" role="status"></p>
+    </form>
+  </section>
+  <aside>
+    <h2>Your order</h2>
+    <table>
+      <tr><td>Sencha, 100 g</td><td>€12.00</td></tr>
+      <tr><td>Cast iron teapot</td><td>€38.00</td></tr>
+      <tr><td>Delivery</td><td id="ship">€4.50</td></tr>
+      <tr id="wraprow" hidden><td>Gift wrap</td><td>€2.00</td></tr>
+      <tr class="total"><td>Total</td><td id="total">€54.50</td></tr>
+    </table>
+  </aside>
+</main>
+<script>
+  const $ = (id) => document.getElementById(id), eur = (n) => '€' + n.toFixed(2);
+  function price() {
+    const ship = Number($('delivery').value), wrap = $('gift').checked ? 2 : 0;
+    $('ship').textContent = ship ? eur(ship) : 'Free';
+    $('wraprow').hidden = !wrap;
+    $('total').textContent = eur(50 + ship + wrap);
+  }
+  function toPayment() {
+    const missing = ['name', 'email', 'address', 'city'].filter((id) => !$(id).value.trim());
+    $('status').style.color = missing.length ? '#b42318' : '';
+    $('status').textContent = missing.length ? 'Still needed: ' + missing.join(', ') + '.' : 'Details saved. Total ' + $('total').textContent + '.';
+  }
+</script>
+</html>
