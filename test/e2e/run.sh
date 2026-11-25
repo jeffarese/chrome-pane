@@ -2,12 +2,17 @@
 # End-to-end test: a headless Chrome with a throwaway profile, the bridge, and the viewer in a
 # pty that plays the terminal (answers its queries, clicks, types, pastes, navigates, quits);
 # then an agent's commands beside that viewer, on pages of a web server of the test's own.
-# It never touches your own Chrome. Needs Google Chrome installed.
+# It never touches your own Chrome. Needs Chrome or Chromium installed (CHROME names another).
 set -eu
 here=$(cd "$(dirname "$0")" && pwd -P)
 root=$(cd "$here/../.." && pwd -P)
-chrome=${CHROME:-/Applications/Google Chrome.app/Contents/MacOS/Google Chrome}
-[ -x "$chrome" ] || { echo "no Chrome at $chrome (set CHROME)" >&2; exit 2; }
+chrome=${CHROME:-}
+if [ -z "$chrome" ]; then
+  for c in "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" google-chrome google-chrome-stable chromium chromium-browser; do
+    c=$(command -v "$c" 2>/dev/null) && { chrome=$c; break; }
+  done
+fi
+[ -n "$chrome" ] && [ -x "$chrome" ] || { echo "no Chrome found (set CHROME to its program)" >&2; exit 2; }
 # Short, because a unix socket's path is limited to about 100 characters.
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/cpt.XXXXXX")
 export CHROME_PANE_STATE="$tmp/state"
