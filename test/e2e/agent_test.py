@@ -53,12 +53,31 @@ ESC = '<!doctype html><title>Sneaky\x1b]52;c;eA==\x07 title</title><body><h1>Esc
 POP = '<!doctype html><title>Pop page</title><body><h1>Pop</h1><button onclick="window.open(\'/next\')">Open</button>'
 # A form that is sent the way a payment is: every time it arrives, the shop takes one more.
 PAY = '<!doctype html><title>Pay</title><body><h1>Pay</h1><form method=post action=/paid><label>Name <input name=n></label> <button>Pay now</button></form>'
-PAGES = {'/': FORM, '/next': NEXT, '/long': LONG, '/esc': ESC, '/pop': POP, '/pay': PAY}
+# Controls made of plain elements (known by the click they listen for, or by the pointer's hand),
+# two buttons of one name, an answer the page takes a while to get, and a table.
+MADE = '''<!doctype html><title>Made page</title><body style="margin:20px;font:16px sans-serif"><h1>Made</h1>
+<div id=pick style="cursor:pointer;width:200px">Choose ▾</div>
+<div id=menu hidden><div onclick="choose(this)">Tea</div><div onclick="choose(this)">Cake</div></div>
+<p><label>Email <input id=email></label></p>
+<section aria-label="First"><h2>First</h2><button onclick="said.textContent='removed first'">Remove</button></section>
+<section aria-label="Second"><h2>Second</h2><button onclick="said.textContent='removed second'">Remove</button></section>
+<div id=go style="width:200px">Send it</div><p id=said></p>
+<table><tr><th>Item<th>Price<tr><td>Tea leaves<td>3<tr><td>Scone<td>5</table>
+<p><a href="/next">Onwards</a></p>
+<script>
+const $ = (id) => document.getElementById(id), said = $('said');
+$('pick').onclick = () => { $('menu').hidden = !$('menu').hidden; };
+function choose(o) { $('pick').textContent = o.textContent + ' ▾'; $('menu').hidden = true; }
+$('go').addEventListener('click', async () => { said.textContent = 'sending'; said.textContent = 'sent: ' + await (await fetch('/slow')).text(); });
+</script>'''
+PAGES = {'/': FORM, '/next': NEXT, '/long': LONG, '/esc': ESC, '/pop': POP, '/pay': PAY, '/made': MADE}
 posts = 0
 
 class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
-        body = PAGES.get(self.path.split('?')[0])
+        # An answer that takes its time, as a search or a save does.
+        if self.path == '/slow': time.sleep(1.2)
+        body = 'ok' if self.path == '/slow' else PAGES.get(self.path.split('?')[0])
         self.send_response(200 if body else 404)
         self.send_header('Content-Type', 'text/html; charset=utf-8')
         self.end_headers()
@@ -217,6 +236,15 @@ step('batch: several actions, one answer', code == 0 and text.count('\n') < 12 a
 code, text, _ = run('batch', stdin='fill %s "X"\nclick e999999\nclick %s\n' % (name, save))
 step('batch: stops at the step that fails', code == 1 and 'failed at step 2' in text and '1 steps not done' in text)
 
+# An agent cuts a long answer short (`| head -3`): the steps are all done all the same.
+piped = subprocess.Popen([launcher, 'batch'], env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+piped.stdin.write('fill "Name" "Piped"\nselect "Colour" Red\ncheck "Gift wrap"\nclick "Save"\n')
+piped.stdin.close()
+first_line = piped.stdout.readline()
+piped.stdout.close()
+piped_code, last = piped.wait(timeout=30), piped.stderr.read()
+step('batch: goes on to its end when what reads its answer stops reading', piped_code == 0 and first_line.startswith('filled') and last == '' and value('document.getElementById("status").textContent') == 'Saved: Piped / Red / gift')
+
 n = len(out)
 code, text, took = run('click', delete)
 step('click: a question the page asks is told (%.1f s)' % took, code == 0 and 'dialog (confirm): "Really delete?"' in text and took < 5)
@@ -224,10 +252,10 @@ step('the pane shows the question', shown(b'confirm: Really delete?', 3, n))
 code, text, took = run('snapshot')
 step('with a question open, a command says so at once (%.1f s)' % took, code == 1 and 'dialog (confirm)' in text and took < 3)
 code, text, _ = run('dialog', 'dismiss')
-step('dialog dismiss: the pane answers it', code == 0 and text.strip() == 'dismissed the dialog' and value('document.getElementById("status").textContent') == 'kept')
+step('dialog dismiss: the pane answers it, and the command says what the page did then', code == 0 and re.fullmatch(r'dismissed the dialog\n~ [a-z]\d+ status "kept"\n', text) is not None and value('document.getElementById("status").textContent') == 'kept')
 run('click', delete)
 code, text, _ = run('dialog', 'accept')
-step('dialog accept', code == 0 and value('document.getElementById("status").textContent') == 'deleted')
+step('dialog accept', code == 0 and text.startswith('accepted the dialog\n') and 'status "deleted"' in text and value('document.getElementById("status").textContent') == 'deleted')
 code, text, _ = run('dialog', 'accept')
 step('dialog: none open is said so', code == 1 and 'no dialog' in text)
 
@@ -302,6 +330,32 @@ run('eval', 'window.close()')
 time.sleep(1.5)
 code, text, _ = run('snapshot')
 step('when that tab closes, the pane is back on the page that opened it', followed and code == 0 and text.startswith('Pop page'))
+
+# Controls by their names, controls made of plain elements, and what an action waits for.
+code, text, _ = run('open', site + '/made')
+step('open: what a page made of plain elements to be clicked is a control too', code == 0 and 'clickable "Choose ▾"' in text and 'clickable "Send it"' in text and '"Tea"' not in text)
+code, text, _ = run('click', 'Choose ▾')
+step('click by name: the one control of that name', code == 0 and re.match(r'clicked [a-z]\d+ "Choose ▾"\n', text) is not None and re.search(r'^\+ [a-z]\d+ clickable "Cake"$', text, re.M) is not None)
+code, text, _ = run('click', 'cake')
+step('click by name: whatever the case of its letters', code == 0 and re.search(r'^~ [a-z]\d+ clickable "Cake ▾"$', text, re.M) is not None and '- ' in text)
+code, text, _ = run('fill', 'Email', 'ada@example.org')
+step('fill by name', code == 0 and text.startswith('filled') and 'textbox "Email" ="ada@example.org"' in text and value('document.getElementById("email").value') == 'ada@example.org')
+code, text, _ = run('fill', 'Remove', 'x')
+step('fill by name: only a field is meant', code == 1 and 'no field of the page is named "Remove"' in text)
+code, text, _ = run('click', 'Remove')
+step('a name two controls have is refused, with what tells them apart', code == 1 and '2 controls are named "Remove"' in text and 'under "First")' in text and 'under "Second")' in text and value('document.getElementById("said").textContent') == '')
+code, text, _ = run('click', 'No such thing')
+step('a name nothing has is said so', code == 1 and 'no control of the page is named "No such thing"' in text)
+code, text, took = run('click', 'Send it')
+step('an action waits for the answer the page asked for, and says the text that came (%.1f s)' % took, code == 0 and '+ text "sent: ok"' in text and 'sending' not in text and 1.2 < took < 4)
+code, text, _ = run('find', 'scone')
+step('find: a cell of a table comes with its row', code == 0 and re.search(r'cell "Scone"  \(in view\)  row: Scone \| 5$', text, re.M) is not None)
+code, text, _ = run('find', 'Second')
+step('find: a named part of the page comes with what it holds', code == 0 and re.search(r'^[a-z]\d+ region "Second"  \(in view\)\n [a-z]\d+ h2 "Second"\n [a-z]\d+ button "Remove"$', text, re.M) is not None and text.count('\n') == 3)
+code, text, _ = run('batch', stdin='fill "Email" "grace@example.org"\nclick "Onwards"\nclick "Back to the form"\nfill "Name" "Grace"\n')
+step('batch by names: goes on across pages, and prints the page it ends on', code == 0 and 'clicked' in text and '\nOrder form\n' in text and 'textbox "Name" ="Grace"' in text and text.count('\n') < 24)
+code, text, _ = run('batch', stdin='click "Next page"\nclick "Nowhere"\nclick "Back to the form"\n')
+step('batch by names: stops where a name is not found', code == 1 and 'failed at step 2' in text and '1 steps not done' in text and 'Second page' in text)
 
 # The answer to a sent form: Chrome reloads it by sending the form again, and through this
 # connection it does not ask first. So neither the agent nor a key in the pane does it unasked.

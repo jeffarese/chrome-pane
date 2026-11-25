@@ -33,7 +33,8 @@ For agents (they act on the tab the pane of their own tab shows, and answer in t
   chrome-pane click|hover|check|uncheck <ref>, fill <ref> <text>, select <ref> <option>,
               type <text>, press <keys>, scroll [down|up|top|bottom|ref], back, forward,
               reload [--resend] (the answer to a sent form is not sent again unasked)
-                               one action; prints what changed
+                               one action; prints what changed. In place of a ref, the
+                               name of the one control that has it: click "Next"
   chrome-pane wait <text>      until it is on the page (--gone <text>, --url <part>, --idle, --timeout <s>)
   chrome-pane batch            one action per line on its input
   chrome-pane shot             a picture of the view, into a file (--scale <n>, --png, --out <new file>)
@@ -111,8 +112,12 @@ async function main() {
   const asksHelp = (args) => { const end = args.indexOf('--'); return (end < 0 ? args : args.slice(0, end)).some((a) => a === '--help' || a === '-h'); };
   if (VERBS.has(argv[0])) {
     if (asksHelp(argv)) return console.log(HELP);
+    // What reads the answer may stop reading (`| head -3`): the actions asked for are done all
+    // the same, not left halfway where the reader stopped.
+    process.stdout.on('error', () => {});
     const code = await runAgent(argv[0], argv.slice(1));
     // Leaves once what it said is written: a pipe takes a long answer in pieces.
+    if (process.stdout.destroyed || process.stdout.writableEnded) process.exit(code);
     return void process.stdout.write('', () => process.exit(code));
   }
   const commands = new Set(['view', 'tabs', 'status', 'stop', 'bridge', 'herdr', 'skill', 'help']);

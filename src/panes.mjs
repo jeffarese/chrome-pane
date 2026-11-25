@@ -84,6 +84,17 @@ export function writeAsk(targetId, ask) {
 }
 export const readAsk = (targetId) => readJson(path.join(notesDir(), `${safe(targetId)}.ask.json`));
 
+/**
+ * What a tab showed before the action that stopped its page at a dialog: the command that
+ * answers the dialog tells the outcome against it. null to take it back.
+ */
+export function writeBefore(targetId, before) {
+  const file = path.join(notesDir(), `${safe(targetId)}.before.json`);
+  if (before === null) { try { fs.unlinkSync(file); } catch {} return; }
+  writeJson(file, { ...before, at: Date.now() });
+}
+export const readBefore = (targetId) => readJson(path.join(notesDir(), `${safe(targetId)}.before.json`));
+
 /** Per tab, the document its refs were given for: { loaderId, gen }. */
 export const readDoc = (targetId) => readJson(path.join(dirOf('docs'), `${safe(targetId)}.json`));
 export function writeDoc(targetId, doc) {

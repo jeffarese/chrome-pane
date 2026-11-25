@@ -223,11 +223,11 @@ filled e12 "Email"
 | --- | --- |
 | `open <url>`, `back`, `forward`, `reload` | The page it lands on. `reload` is refused on the answer to a sent form, which it would send again, unless it is `reload --resend`. |
 | `snapshot` | The controls in view under their sections and headings, each with a ref. `--all` the whole page, `--in <ref>` one part, `--text` with the text, `--urls` with the links' addresses. |
-| `find <text>` | The elements that have it, and whether each is in view, above or below. |
+| `find <text>` | The elements that have it, and whether each is in view, above or below. A cell of a table comes with its row, a named section with the controls in it, and look-alikes with what each is under. |
 | `read [ref\|css]` | The main text, or one part's. `--table` a table as rows. |
-| `click`, `hover`, `check`, `uncheck <ref>`; `fill <ref> <text>`; `select <ref> <option>`; `type <text>`; `press <keys>`; `scroll [down\|up\|top\|bottom\|ref]` | What it did, then what changed in the page's controls and messages: `~` changed, `-` gone, `+` new. A new page prints its snapshot. |
+| `click`, `hover`, `check`, `uncheck <ref>`; `fill <ref> <text>`; `select <ref> <option>`; `type <text>`; `press <keys>`; `scroll [down\|up\|top\|bottom\|ref]` | What it did, then what changed in the page's controls, messages and text: `~` changed, `-` gone, `+` new. A new page prints its snapshot. In place of a ref, the name of a control (`click "Next"`, `fill "Email" ada@example.com`) when no other control has it. |
 | `wait <text>` | When it is on the page. Or `--gone <text>`, `--url <part>`, `--idle`; `--timeout <s>`. |
-| `batch` | Several actions, one a line on its input, and one answer. |
+| `batch` | Several actions, one a line on its input, and one answer. With names in place of refs it goes on from one page to the next. |
 | `shot` | The path of a picture of the view, and what it costs to look at. `--out <new .jpg file>` puts it elsewhere. |
 | `dialog accept\|dismiss` | Answers the page's alert or question. |
 | `eval <js>` | The value. Not among the commands the skill lets an agent run unasked. |
@@ -238,7 +238,17 @@ While it does, the pane's bar says what it is doing.
 
 A ref is a letter and Chrome's own number for the element: it stays good for as long as the
 element lives, and the letter changes with every page loaded, so a ref from an earlier page is
-refused (with the page there is now) instead of landing on something else.
+refused (with the page there is now) instead of landing on something else. A name is looked up
+when the action runs: a name that two controls have is refused, with the list of them and what
+each is under, instead of acting on a guess.
+
+An action is over when the page has taken it in: the page it loads, the answers it asked the
+network for (a search, a save; for 8 seconds at most) and the changes those make. So what an
+action prints is its outcome, and a click on "Generate report" comes back with the report.
+
+Controls that a page makes of plain elements, with no role or name for assistive tools, are
+listed as `clickable`: they are known by the click they listen for, or by the hand the pointer
+turns into over them.
 
 What the commands refuse: any address that is not http or https; writing into a password,
 one-time-code or card field with `fill`, `type` or `press` (you type those in the pane), or
