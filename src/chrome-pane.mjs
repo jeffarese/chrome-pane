@@ -52,6 +52,7 @@ Options:
   --whole                send every frame whole, never only the part of it that changed
   --user-data-dir <dir>  another Chromium browser's profile folder
   --idle <seconds>       bridge: stop this long after the last viewer left (default: never)
+  --version, --help
 
 Keys in the viewer: Ctrl+T tabs, Ctrl+L address, Ctrl+R reload, Alt+←/→ back and forward,
 Ctrl+Q quit. Everything else, and the mouse, goes to the page.
@@ -98,6 +99,9 @@ function skill(argv) {
 
 async function main() {
   const argv = process.argv.slice(2);
+  if (argv[0] === '--version' || argv[0] === '-v' || argv[0] === 'version') {
+    return console.log(JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version);
+  }
   if (VERBS.has(argv[0])) {
     const code = await runAgent(argv[0], argv.slice(1));
     // Leaves once what it said is written: a pipe takes a long answer in pieces.

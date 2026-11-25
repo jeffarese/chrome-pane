@@ -1,0 +1,24 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm test
+      - run: for f in src/*.mjs herdr/install.mjs test/e2e/eval.mjs; do node --check "$f"; done
+      - run: sh -n install.sh && sh -n bin/chrome-pane && sh -n test/e2e/run.sh
+      - run: python3 -m py_compile test/e2e/viewer_test.py test/e2e/agent_test.py
+      - run: bin/chrome-pane --version && bin/chrome-pane --help >/dev/null && bin/chrome-pane skill >/dev/null

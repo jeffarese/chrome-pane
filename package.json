@@ -1,10 +1,19 @@
 {
   "name": "chrome-pane",
   "version": "0.1.0",
-  "description": "Your own Chrome, shown and driven in a terminal pane",
+  "description": "Your own Chrome, with your logins, shown and driven in a terminal pane: for you, and for the agents working beside you",
+  "license": "MIT",
   "type": "module",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jeffarese/chrome-pane.git"
+  },
+  "keywords": ["chrome", "terminal", "kitty-graphics", "devtools-protocol", "herdr", "ai-agents", "browser-automation"],
   "bin": { "chrome-pane": "bin/chrome-pane" },
   "engines": { "node": ">=22" },
-  "scripts": { "test": "node --test test/*.test.mjs" }
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "e2e": "sh test/e2e/run.sh"
+  }
 }
