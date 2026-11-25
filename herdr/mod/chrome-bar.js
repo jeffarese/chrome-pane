@@ -15,7 +15,11 @@
 //   close()           await this.chrome.close();      // the viewer puts its own bar back
 import { div, svg } from "gpui-kit";
 import { h_flex, InputState, Input } from "gpui-base";
-import { exec, run, checking } from "herdr";
+import { exec, run, checking, openOverlay, readTextFile, appHome } from "herdr";
+
+// The mod that lists Chrome's tabs in a popup (herdr/tabs in chrome-pane; `chrome-pane herdr`
+// installs it). Without it the tabs button shows the viewer's own list, in the pane.
+const TABS = "chrome-pane-tabs";
 
 export const LABEL = "chrome-pane.bar";
 
@@ -56,6 +60,13 @@ export class ChromeBar {
     this.focusSeen = null;  // the viewer's count of Ctrl+L, as last seen
     this.claimedAt = 0;
     this.claimedPid = null; // the viewer that was told this header draws its controls
+    this.pickSeen = null;   // the viewer's count of Ctrl+T, as last seen
+    this.popup = false;     // the popup that lists the tabs is installed
+    if (!checking()) cx.spawn(async (cx) => {
+      try { this.popup = Boolean(await readTextFile(`${appHome()}/mods/${TABS}/mod.json`)); } catch {}
+      // The viewer is told again, with what this header can now show.
+      if (this.popup) { this.claimedPid = null; cx.notify(); }
+    });
     this.input = InputState.new({ placeholder: "Search, or type an address" });
     this.input.on("submit", (_e, cx) => {
       const url = this.input.value().trim();
@@ -83,7 +94,19 @@ export class ChromeBar {
   /** Tells the viewer that this header draws the controls. */
   claim() {
     this.claimedAt = Date.now();
-    this.send("native", "on");
+    this.send("native", this.popup ? "on tabs" : "on");
+  }
+
+  /** Chrome's tabs: in a popup at the mouse (or under the top, asked for with a key), else in the pane. */
+  tabs(key = false) {
+    const s = this.state, address = this.address;
+    if (!s || !address) return;
+    if (!this.popup) return void this.send("tabs");
+    const cut = address.lastIndexOf("/");
+    openOverlay({
+      mod: TABS, kind: "popup", width: 460, height: 0.7, ...(key ? { at: "top", offset: 48 } : {}),
+      props: { cli: s.cli, on: cut < 0 ? null : address.slice(0, cut), terminal: address.slice(cut + 1), tab: s.tab ?? null },
+    });
   }
 
   /**
@@ -93,7 +116,7 @@ export class ChromeBar {
   see(term) {
     this.state = chromeState(term);
     this.address = this.state ? term.address : null;
-    if (!this.state) { this.editing = false; this.focusSeen = null; }
+    if (!this.state) { this.editing = false; this.focusSeen = null; this.pickSeen = null; }
     return this.state;
   }
 
@@ -155,7 +178,10 @@ export class ChromeBar {
       .child(label);
   }
 
-  /** A line the bar says in place of the address, with the buttons that answer it. */
+  /**
+   * A line the bar says in place of the address, after the buttons that answer it: a header
+   * shows its own buttons (split, zoom, close) over its right end while the mouse is on it.
+   */
   says(t, id, text, color, buttons = []) {
     return h_flex()
       .id(id)
@@ -163,8 +189,8 @@ export class ChromeBar {
       .min_w(0)
       .gap(6)
       .items_center()
-      .child(div().flex_1().min_w(0).truncate().text_color(color).tooltip(text).child(text))
-      .children(buttons);
+      .children(buttons)
+      .child(div().flex_1().min_w(0).truncate().text_color(color).tooltip(text).child(text));
   }
 
   field(t, pane, s) {
@@ -243,7 +269,30 @@ export class ChromeBar {
       // Not from here: a field takes the keyboard between two renders, never during one.
       if (s.mode === "page" && !this.editing) cx.spawn(async (cx) => { this.begin(); cx.notify(); });
     }
+    // Ctrl+T in the pane, the same way: the list of tabs opens here.
+    if (this.pickSeen === null) this.pickSeen = s.pick;
+    else if (s.pick !== this.pickSeen) {
+      this.pickSeen = s.pick;
+      cx.spawn(async (cx) => { this.tabs(true); cx.notify(); });
+    }
     const page = s.mode === "page";
+    const tabs = s.tabs > 0 ? String(s.tabs) : "";
+    const tabsButton = h_flex()
+      .id(`cp-tabs-${pane}`)
+      .flex_none()
+      .h(22)
+      .px(5)
+      .gap(4)
+      .items_center()
+      .rounded(5)
+      .text_color(s.mode === "tabs" ? t.foreground : t.muted)
+      .when(s.mode === "tabs", (el) => el.bg(t.selected))
+      .hover((st) => st.bg(t.hover).text_color(t.foreground))
+      .tooltip(`Chrome’s tabs${tabs ? ` (${tabs})` : ""}  ·  Ctrl+T`)
+      .on_click((_e, cx) => { cx.stop_propagation(); this.tabs(); })
+      .child(svg(this.icon("tabs")).size(14).flex_none())
+      .when(Boolean(tabs), (el) => el.child(div().flex_none().text_size(11).child(tabs)));
+    // All the buttons on the left: the right end is where a header shows its own on hover.
     const row = h_flex().id(`cp-bar-${pane}`).flex_1().min_w(0).gap(2).items_center().text_size(12);
     row
       .child(this.button(t, `cp-back-${pane}`, "back", "Back  ·  Alt+←", "back", page && s.back))
@@ -251,6 +300,7 @@ export class ChromeBar {
       .child(s.loading
         ? this.button(t, `cp-stop-${pane}`, "stop", "Stop loading", "stop", page)
         : this.button(t, `cp-reload-${pane}`, "reload", "Reload  ·  Ctrl+R", "reload", page))
+      .child(tabsButton)
       .child(div().flex_none().w(4));
     if (s.dialog) {
       row.child(this.says(t, `cp-says-${pane}`, `${s.dialog.type}: ${s.dialog.message}`, t.foreground, [
@@ -271,23 +321,6 @@ export class ChromeBar {
     } else {
       row.child(this.field(t, pane, s));
     }
-    const tabs = s.tabs > 0 ? String(s.tabs) : "";
-    row.child(h_flex()
-      .id(`cp-tabs-${pane}`)
-      .flex_none()
-      .h(22)
-      .ml(4)
-      .px(5)
-      .gap(4)
-      .items_center()
-      .rounded(5)
-      .text_color(s.mode === "tabs" ? t.foreground : t.muted)
-      .when(s.mode === "tabs", (el) => el.bg(t.selected))
-      .hover((st) => st.bg(t.hover).text_color(t.foreground))
-      .tooltip(`Chrome’s tabs${tabs ? ` (${tabs})` : ""}  ·  Ctrl+T`)
-      .on_click(() => { this.send("tabs"); })
-      .child(svg(this.icon("tabs")).size(14).flex_none())
-      .when(Boolean(tabs), (el) => el.child(div().flex_none().text_size(11).child(tabs))));
     return row;
   }
 }

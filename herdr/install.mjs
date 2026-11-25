@@ -55,8 +55,12 @@ console.log(`${remove ? 'Removed Chrome from' : 'Added Chrome to'} ${file}`);
 // then find the file it imports.
 const mods = path.join(home, 'mods');
 const own = path.join(mods, 'chrome-pane');
+// The list of Chrome's tabs, which the header's tabs button drops as a popup.
+const tabs = path.join(mods, 'chrome-pane-tabs');
+const tabsFrom = fileURLToPath(new URL('./tabs/', import.meta.url));
 if (remove) {
   fs.rmSync(own, { recursive: true, force: true });
+  fs.rmSync(tabs, { recursive: true, force: true });
   // No header draws the controls any more: a new pane starts with its own bar at once.
   fs.rmSync(path.join(stateDir(), 'drawn-by-herdr'), { force: true });
   if (into) for (const f of piece) fs.rmSync(path.join(mods, into, f), { force: true });
@@ -66,6 +70,8 @@ if (remove) {
   // Not what the Herdr app writes beside a mod it checks (its types, for an editor).
   const files = fs.readdirSync(from).filter((f) => f !== 'main.js' && f !== 'jsconfig.json' && !f.endsWith('.d.ts'));
   for (const f of [...files, 'main.js']) fs.copyFileSync(path.join(from, f), path.join(own, f));
+  fs.mkdirSync(tabs, { recursive: true });
+  for (const f of fs.readdirSync(tabsFrom).filter((f) => f !== 'jsconfig.json' && !f.endsWith('.d.ts'))) fs.copyFileSync(path.join(tabsFrom, f), path.join(tabs, f));
   console.log(`Installed the pane header ${own}. A layout uses it as its pane header (layouts/<name>.json, in { "tab": "active" }):
   "pane": { "header": { "content": { "mod": "chrome-pane" }, "height": 30, "position": "top" } }`);
   if (into) {

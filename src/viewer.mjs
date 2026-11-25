@@ -68,6 +68,8 @@ export class Viewer {
     this.hosted = false;         // the multiplexer draws the controls: no bar of this viewer's own
     this.claimed = 0;            // when it last said so itself (its header repeats it while it is there)
     this.focusN = 0;             // counts the times its address field was asked for (Ctrl+L)
+    this.pickN = 0;              // and the times the list of tabs was (Ctrl+T), where the multiplexer shows its own
+    this.hostTabs = false;       // the multiplexer has a list of tabs of its own to show
     this.said = '';              // what it was last told the bar says
     this.tab = null;             // { targetId, sid, title, url }
     this.where = {};             // the multiplexer's terminal this runs in, and what it says of its tab, if any
@@ -648,7 +650,7 @@ export class Viewer {
     if (this.quitting) return;
     const { edit, hot, closing, ...s } = state;
     // native: the multiplexer draws the controls. own: it is not to (--bar): this viewer keeps its bar.
-    const text = JSON.stringify({ v: 1, pid: process.pid, cli: [process.execPath, MAIN], native: this.hosted, own: Boolean(this.opts.bar), focus: this.focusN, ...s,
+    const text = JSON.stringify({ v: 1, pid: process.pid, cli: [process.execPath, MAIN], native: this.hosted, own: Boolean(this.opts.bar), focus: this.focusN, pick: this.pickN, tab: this.tab?.targetId ?? null, ...s,
       url: s.url.slice(0, 2000), title: oneLine(s.title).slice(0, 200), dialog: s.dialog && { type: s.dialog.type, message: oneLine(s.dialog.message ?? '').slice(0, 300) } });
     if (text === this.saying) return;
     this.saying = text;
@@ -683,6 +685,7 @@ export class Viewer {
   setNative(on) {
     if (on) { this.claimed = Date.now(); if (this.host) setDrawnBy(this.host.id, true); }
     on = Boolean(on) && !this.opts.bar && Boolean(this.host?.publish);
+    if (!on) this.hostTabs = false;
     if (on === this.hosted) return this.publish();
     const shown = this.term.bar;
     this.hosted = on;
@@ -703,7 +706,8 @@ export class Viewer {
   act(name, arg = null) {
     const tab = this.tab, page = this.mode === 'page' && tab ? tab : null;
     const ready = this.cdp && this.cdp.state === 'ready';
-    if (name === 'native') return this.setNative(arg === 'on');
+    // "on tabs": the multiplexer also has a list of tabs of its own, to show in place of this one's.
+    if (name === 'native') { this.hostTabs = arg === 'on tabs'; return this.setNative(arg === 'on' || arg === 'on tabs'); }
     if (!ready) return;
     if (name === 'back' || name === 'forward') { if (page) this.history(name === 'back' ? -1 : 1); }
     else if (name === 'reload') { if (page) this.reload(); }
@@ -717,7 +721,26 @@ export class Viewer {
     } else if (name === 'go') {
       const url = typeof arg === 'string' ? normalizeUrl(arg) : null;
       if (page && url) { this.resend = false; this.cdp.send('Page.navigate', { url }, page.sid).catch(() => {}); }
-    } else if (name === 'tabs') { if (this.mode === 'tabs') this.backToPage(); else this.showTabs().catch(() => {}); }
+    } else if (name === 'tabs') {
+      if (this.mode === 'tabs') this.backToPage();
+      // The multiplexer's own list: it is told that it was asked for.
+      else if (page && this.hosted && this.hostTabs) { this.pickN++; this.publish(); }
+      else this.showTabs().catch(() => {});
+    } else if (name === 'show') {
+      // One of Chrome's tabs, by its id (chrome-pane tabs --json): shown here in place of this one.
+      if (typeof arg !== 'string' || !this.pageIds.has(arg)) return;
+      if (arg === tab?.targetId) { if (this.mode === 'tabs') this.backToPage(); return; }
+      this.attach(arg).catch((e) => this.showTabs(e.message).catch(() => {}));
+    } else if (name === 'close-tab') {
+      // Closed in the person's real Chrome, with whatever was unsaved in it: whoever asks has asked them.
+      if (typeof arg === 'string' && this.pageIds.has(arg)) this.cdp.send('Target.closeTarget', { targetId: arg }).catch(() => {});
+    } else if (name === 'new') {
+      // A new tab, shown here: at that address, or empty with the address field ready to be typed in.
+      const url = typeof arg === 'string' && arg.trim() ? normalizeUrl(arg) : 'about:blank';
+      if (!url) return;
+      this.cdp.send('Target.createTarget', { url, background: true }).then((r) => this.attach(r.targetId))
+        .then(() => { if (url === 'about:blank') this.act('address'); }).catch((e) => this.say(e.message));
+    }
     else if (name === 'page') { if (this.mode === 'tabs') this.backToPage(); }
     else if (name === 'newtab') { if (this.mode === 'tabs') { this.edit = editOf(''); this.newTab = true; this.drawBar(); } }
     else if (name === 'dialog-ok' || name === 'dialog-cancel') {

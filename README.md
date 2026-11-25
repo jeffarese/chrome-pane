@@ -229,7 +229,7 @@ sandbox, which blocks unix sockets.
 
 `git pull` in the clone updates it: the link and the skill point into the clone. If you move the
 clone, run `./install.sh` again from its new place. `./install.sh --remove` takes it all out: the
-link, Herdr's name, icon and pane header, and the skill.
+link, Herdr's name, icon, pane header and list of tabs, and the skill.
 
 ### When it does not work
 
@@ -299,15 +299,17 @@ chrome-pane bar --in t4c2 back        # the pane of another terminal, or of a vi
 ```
 
 ```json
-{ "terminal": "t4c2", "v": 1, "pid": 4242, "native": false, "own": false, "focus": 0,
-  "mode": "page", "url": "https://example.com/", "title": "Example Domain", "loading": false,
-  "back": true, "fwd": false, "tabs": 3, "agent": null, "dialog": null, "resend": false,
-  "hidden": false, "notice": null }
+{ "terminal": "t4c2", "v": 1, "pid": 4242, "native": false, "own": false, "focus": 0, "pick": 0,
+  "tab": "1CEDB4…", "mode": "page", "url": "https://example.com/", "title": "Example Domain",
+  "loading": false, "back": true, "fwd": false, "tabs": 3, "agent": null, "dialog": null,
+  "resend": false, "hidden": false, "notice": null }
 ```
 
 The actions are those of the bar: `back`, `forward`, `reload`, `stop`, `go <address>`, `tabs`,
 `page`, `front`, `address`, and the answers `dialog-ok`, `dialog-cancel`, `resend-yes` and
-`resend-no`. The viewer does an action as soon as it is asked; one it has not taken within 15
+`resend-no`. Three more are for Chrome's other tabs, by the ids `chrome-pane tabs --json`
+gives: `show <id>` shows that tab in the pane, `close-tab <id>` closes it in Chrome, and
+`new [address]` opens one. The viewer does an action as soon as it is asked; one it has not taken within 15
 seconds is dropped, not done late. These are the person's controls. An agent has
 [its own commands](#for-agents), which also say what the page did.
 
@@ -327,8 +329,14 @@ of opening a second one.
 **Herdr's own pane header can draw the controls**, as real buttons and a real text field, and
 the viewer then draws no bar: the page has the whole pane.
 
-`chrome-pane herdr` (the installer runs it) puts a pane header named `chrome-pane` in the
-Herdr app's mods. A layout uses it as its pane header:
+Back, forward, reload and the tabs are on the left, then the address, which is a field to
+type in. The tabs button, or Ctrl+T in the pane, drops a list of Chrome's tabs over the window:
+type to find one, ↑↓ and Enter (or a click) to show it in the pane, × to close it in Chrome (it
+asks first), and what you typed opens in a new tab when it is no tab's name.
+
+`chrome-pane herdr` (the installer runs it) puts a pane header named `chrome-pane` and the
+list of tabs (`chrome-pane-tabs`) in the Herdr app's mods. A layout uses the header as its
+pane header:
 
 ```json
 { "tab": "active", "pane": { "header": { "content": { "mod": "chrome-pane" } } } }
@@ -339,7 +347,8 @@ It is Herdr's own header for every other pane. If you have a header mod of your 
 folder; the top of `chrome-bar.js` has the four lines its `main.js` needs. Either way:
 
 - The viewer says what its bar shows in a label on its terminal (`chrome-pane.bar`), and the
-  header acts through `chrome-pane bar`, on the computer the viewer runs on.
+  header and the list act through `chrome-pane bar` and `chrome-pane tabs --json`, on the
+  computer the viewer runs on.
 - The header tells the viewer it draws the controls, and goes on telling it. A viewer that is
   not told for 80 seconds (the header was removed, the window closed) puts its own bar back.
 - `chrome-pane --bar` keeps the viewer's own bar in that pane.

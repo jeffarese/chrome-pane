@@ -133,7 +133,7 @@ async function main() {
   if (cmd === 'bar') {
     // The bar with no terminal to look at: what it says, or one of its actions, as a click on it
     // would. The controls a multiplexer draws for a pane (Herdr's pane header) work through this.
-    if (asksHelp(argv)) return console.log('chrome-pane bar [--in <the pane\'s terminal, or its viewer\'s pid>] [<action> [value]]\n  Without an action: what the bar says, as JSON. Actions: back, forward, reload, stop, go <address>, tabs, page,\n  front, address, dialog-ok, dialog-cancel, resend-yes, resend-no.');
+    if (asksHelp(argv)) return console.log('chrome-pane bar [--in <the pane\'s terminal, or its viewer\'s pid>] [<action> [value]]\n  Without an action: what the bar says, as JSON. Actions: back, forward, reload, stop, go <address>, tabs, page,\n  front, address, dialog-ok, dialog-cancel, resend-yes, resend-no, and for Chrome\'s other tabs (their ids:\n  chrome-pane tabs --json): show <id>, close-tab <id>, new [address].');
     const rest = [];
     let id = null;
     for (let i = 0; i < argv.length; i++) {

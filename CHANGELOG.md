@@ -16,6 +16,12 @@
   and the viewer then draws no bar. `chrome-pane herdr` installs a pane header (`chrome-pane`)
   for a layout to use, and `chrome-pane herdr --into <mod>` gives a header mod of your own the
   piece that draws them. `--bar` keeps the viewer's own bar.
+- With that header, Chrome's tabs are a list the app draws over the window (`chrome-pane-tabs`),
+  from the header's tabs button or Ctrl+T in the pane: type to find a tab, Enter or a click
+  shows it, × closes it in Chrome after asking, and what was typed opens in a new tab. The
+  header's buttons are all on its left, clear of the buttons a header shows on hover.
+- `chrome-pane bar show <id>`, `close-tab <id>` and `new [address]` act on Chrome's other
+  tabs, by the ids of `chrome-pane tabs --json`.
 - In Rex and Tern, as in Herdr: an agent's `chrome-pane open` (or `--pane`) opens the viewer as
   a pane beside the caller, in the same tab, and later commands from that tab use it. Each
   multiplexer is asked in its own words (`rex split`, `tern split`, `hc run`), through one
