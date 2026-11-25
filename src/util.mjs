@@ -29,10 +29,19 @@ export function width(s) {
   return n;
 }
 
+/**
+ * Text that came from a page, safe to print: without the control codes a terminal would obey
+ * (Esc and the rest of C0 but tab and newline, Del, and C1, which some terminals read as Esc
+ * sequences). A page's title can hold any of them.
+ */
+export const clean = (s) => String(s).replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/g, '');
+/** The same on one line: every control code, tab and newline too, is a space. */
+export const oneLine = (s) => String(s).replace(/[\x00-\x1f\x7f-\x9f]/g, ' ');
+
 /** Cuts or pads `s` to exactly `cols` cells; a cut ends in "…". */
 export function fit(s, cols) {
   if (cols <= 0) return '';
-  s = s.replace(/[\x00-\x1f\x7f]/g, ' ');
+  s = oneLine(s);
   if (width(s) <= cols) return s + ' '.repeat(cols - width(s));
   let out = '', n = 0;
   for (const ch of s) {

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { InputParser } from '../src/input.mjs';
 import { keyCalls } from '../src/keys.mjs';
-import { barLine, fit, normalizeUrl, place, pngSize, shortAddress, toPage, width } from '../src/util.mjs';
+import { barLine, clean, fit, normalizeUrl, oneLine, place, pngSize, shortAddress, toPage, width } from '../src/util.mjs';
 
 const names = (evs) => evs.map((e) => (e.type === 'key' ? `${e.ctrl ? 'C-' : ''}${e.alt ? 'A-' : ''}${e.shift ? 'S-' : ''}${e.name}` : e.type));
 
@@ -66,6 +66,12 @@ test('text that fits a bar', () => {
   assert.equal(fit('abc', 5), 'abc  ');
   assert.equal(fit('abcdefgh', 5), 'abcd…');
   assert.equal(width(fit('日本語のタイトル', 7)), 7);
+});
+
+test('text of a page loses the control codes a terminal would obey', () => {
+  assert.equal(clean('a\x1b]52;c;eA==\x07b\x9b31mc\x9d\x9cd\r\n\te'), 'a]52;c;eA==b31mcd\n\te');
+  assert.equal(oneLine('a\nb\x1bc\x9bd'), 'a b c d');
+  assert.equal(fit('a\x9bb', 5), 'a b  ');
 });
 
 test('the address in the bar, as a browser writes it', () => {

@@ -26,6 +26,7 @@ FORM = '''<!doctype html><title>Order form</title>
 <p><label>Name <input id=name></label>
 <p><label>Password <input id=pw type=password value="hunter2"></label>
 <p><label>Card <input id=card autocomplete="cc-number"></label>
+<p><label>Code <input id=code name=cvc value="123"></label>
 <p><label>Colour <select id=colour><option>Red<option>Green<option>Blue</select></label>
 <p><label><input id=gift type=checkbox> Gift wrap</label>
 <p><button id=save onclick="store()">Save</button>
@@ -46,7 +47,10 @@ LONG = ('<!doctype html><title>Long page</title><body style="margin:20px;font:16
         + ''.join('<a href="#c%d">Entry %d</a> ' % (i, i) for i in range(1, 31)) + '</nav>'
         + ''.join('<h2 id=c%d style="margin-top:%dpx">Chapter %d</h2><p>Words of chapter %d.' % (i, 900, i, i) for i in range(1, 4))
         + '<p style="margin-top:900px"><button onclick="document.title=\'bottom clicked\'">Bottom button</button>')
-PAGES = {'/': FORM, '/next': NEXT, '/long': LONG}
+# A page that tries to talk to the terminal: an Esc sequence in its title and its text, and the
+# one-byte forms of Esc [ and of the end of a sequence.
+ESC = '<!doctype html><title>Sneaky\x1b]52;c;eA==\x07 title</title><body><h1>Esc\x1b[31m here</h1><p>and \x9b31m too\x9c'
+PAGES = {'/': FORM, '/next': NEXT, '/long': LONG, '/esc': ESC}
 
 class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
@@ -124,6 +128,7 @@ step('snapshot: the title, the address and the view (%s)' % (lines[2] if len(lin
 step('snapshot: the controls under what holds them', all(w in snap for w in ('main', 'h1 "Order"', 'link "Next page"', 'textbox "Name"', 'checkbox "Gift wrap"', 'button "Save"')))
 step('snapshot: a list shows the option it has', re.search(r'"Colour"[^\n]*Red', snap) is not None)
 step('snapshot: a password is said to be there, not what it is', '=[filled]' in snap and 'hunter2' not in snap)
+step('snapshot: nor a card\'s code, known by the field\'s name', 'textbox "Code" =[filled]' in snap)
 step('snapshot: it is short (%d characters)' % len(snap), len(snap) < 900)
 name, pw, card, colour, gift, save, delete = (ref(snap, w) for w in ('"Name"', '"Password"', '"Card"', '"Colour"', '"Gift wrap"', '"Save"', '"Delete"'))
 
@@ -170,6 +175,8 @@ step('fill with nothing empties; type and press go to the focused field: %s' % t
 run('click', pw)
 code, text, _ = run('type', 'secret')
 step('type: refused while a password field has the focus', code == 1 and 'ask the person' in text and value('document.getElementById("pw").value') == 'hunter2')
+code, text, _ = run('press', 'x')
+step('press: a letter is refused there too, Tab is not', code == 1 and 'ask the person' in text and value('document.getElementById("pw").value') == 'hunter2' and run('press', 'Tab')[0] == 0)
 
 code, text, _ = run('batch', stdin='fill %s "Grace Hopper"\nselect %s Green\nuncheck %s\nclick %s\n' % (name, colour, gift, save))
 step('batch: several actions, one answer', code == 0 and text.count('\n') < 12 and 'filled' in text and 'unchecked' in text and value('document.getElementById("status").textContent') == 'Saved: Grace Hopper / Green / plain')
@@ -194,8 +201,14 @@ shot_file = os.path.join(tempfile.mkdtemp(prefix='cps.'), 'shot.jpg')
 code, text, _ = run('shot', '--out', shot_file)
 jpeg = os.path.exists(shot_file) and open(shot_file, 'rb').read(3) == b'\xff\xd8\xff'
 step('shot: a picture in a file, and its cost: %s' % text.split('\n')[-1], code == 0 and jpeg and text.startswith(shot_file) and 'tokens' in text)
+code, text, _ = run('shot', '--out', shot_file)
+code2, text2, _ = run('shot', '--out', os.path.join(os.path.dirname(shot_file), 'profile.sh'))
+step('shot: never over a file, and only into a picture file', code == 1 and 'never writes over' in text and code2 == 1 and '--out takes' in text2 and os.listdir(os.path.dirname(shot_file)) == ['shot.jpg'])
 if os.path.exists(shot_file): os.remove(shot_file)
 os.rmdir(os.path.dirname(shot_file))
+code, text, _ = run('shot')
+own = text.split('\n')[0]
+step('shot: by itself, into a folder of the person\'s alone', code == 0 and own.startswith(os.path.join(os.path.normpath(state), 'shots') + os.sep) and os.stat(own).st_mode & 0o077 == 0 and os.stat(os.path.dirname(own)).st_mode & 0o077 == 0)
 n = len(out)
 run('click', save)
 step('after it, the pane still gets frames', shown(b'\x1b_Ga=T,f=100', 5, n))
@@ -231,6 +244,10 @@ step('find: says a thing is below', code == 0 and '(↓ below)' in text)
 code, text, _ = run('click', ref(text, 'button "Bottom button"'))
 step('click: brings what is out of view into it first, and a scroll is no change', code == 0 and re.search(r'^view now at \d+ of \d+ px$', text, re.M) is not None and text.count('\n') == 2 and value('document.title') == 'bottom clicked')
 
+code, text, _ = run('read', 'h1')
+step('read: h1 is the heading, not a ref', code == 0 and text.strip().endswith('Long'))
+code, text, _ = run('wait', 'Long', '--timeout', 'soon')
+step('wait: a limit that is no number is refused', code == 1 and '--timeout' in text)
 code, text, _ = run('open', 'file:///etc/passwd')
 code2, text2, _ = run('open', 'javascript:alert(1)')
 step('open: only the web', code == 1 and 'http and https' in text and code2 == 1 and value('location.pathname') == '/long')
@@ -238,6 +255,10 @@ code, text, _ = run('eval', '1 + 1')
 step('eval: says where the answer comes from', code == 0 and text == 'from %s:\n2\n' % site)
 code, text, _ = run('snapshot', '--bogus')
 step('an option that does not exist is an error', code == 1 and 'unknown option' in text)
+code, text, _ = run('open', site + '/esc')
+said = text + run('read')[1] + run('find', 'here')[1]
+said += subprocess.run([launcher, 'tabs'], env=env, capture_output=True, text=True, timeout=30).stdout
+step('what a page writes is printed without its control codes', code == 0 and 'Sneaky' in said and 'Esc' in said and 'too' in said and re.search('[\x1b\x07\x9b\x9c]', said) is None)
 n = len(out)
 code, text, _ = run('done')
 step('done: the pane is the person\'s again', code == 0 and shown(b'\x1b]7501;state=idle:app=chrome', 7, n))
@@ -247,6 +268,6 @@ os.write(fd, b'\x11')
 shown(b'\x1b[?1049l', 5, n)
 _, status = os.waitpid(pid, 0)
 code, text, _ = run('snapshot')
-step('with the pane closed, a command says how to open one', os.waitstatus_to_exitcode(status) == 0 and code == 2 and 'chrome-pane open <url>' in text)
+step('with the pane closed, a command says how to open one', os.waitstatus_to_exitcode(status) == 0 and code == 2 and 'No Chrome pane' in text and 'chrome-pane' in text.split('No Chrome pane')[1])
 server.shutdown()
 sys.exit(1 if fails else 0)

@@ -21,20 +21,26 @@ that connection can read and drive every tab: treat it like your browser's sessi
   it could read Chrome's cookies from disk. The socket is not a boundary against your own
   account.
 - **The limits on agents are guidance, not a sandbox.** The agent commands take only http and
-  https addresses, act only on the tab a pane shows, refuse to fill or type into password,
-  one-time-code and card fields, and print `[filled]` for their values. That stops a
-  well-behaved agent from wandering and blunts instructions hidden in a page. It does not stop
-  a program that talks to the socket directly, and `chrome-pane eval` runs any JavaScript in
-  the page (the skill does not let an agent run it unasked).
+  https addresses and act only on the tab a pane shows. `fill`, `type` and `press` refuse
+  password, one-time-code and card fields, and a field inside another site's frame; a
+  snapshot prints `[filled]` for such a field's value. `shot` writes only a new `.jpg` or
+  `.png` file, never over one. That stops a well-behaved agent from wandering and blunts
+  instructions hidden in a page. It does not stop a program that talks to the socket directly.
+  The commands know a secret field by its type, its `autocomplete` or its name: a page that
+  says none of that gets past them. And `chrome-pane eval` runs any JavaScript in the page,
+  which can read any field (the skill does not let an agent run it unasked).
 - **Pages are untrusted input.** Text an agent reads from a page can try to instruct it. The
   skill tells agents that page text is never instructions, and `read` and `eval` say which site
-  their output comes from; an agent can still be fooled. Keep an eye on the pane: its bar shows
+  their output comes from; an agent can still be fooled. What a page wrote is printed without
+  control codes, so it cannot drive the terminal it is printed in. Keep an eye on the pane: its bar shows
   what an agent is doing, and your keys and mouse work at all times.
 
 ## Logs
 
 `CHROME_PANE_TRACE=<file>` records picture sizes and timings only. `CHROME_PANE_DEBUG=<file>`
 records everything the viewer receives, **every key you type included**: never leave it on.
+Both files are made readable by you alone. The pictures `chrome-pane shot` takes go to
+`~/.local/state/chrome-pane/shots`, yours alone too, and are deleted after a day.
 
 ## Reporting a problem
 

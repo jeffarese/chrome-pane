@@ -11,15 +11,14 @@
 // (e, then f for the next page loaded in the tab...). So a ref needs no table kept between
 // commands, and one from an earlier page is refused instead of pointing at some other element.
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { canConnect } from './bridge.mjs';
 import { connect } from './cdp.mjs';
 import { openPane, whereAmI } from './herdr.mjs';
 import { keyCalls } from './keys.mjs';
 import { listPanes, readDoc, writeAsk, writeDoc, writeNote } from './panes.mjs';
-import { socketPath } from './paths.mjs';
-import { pngSize } from './util.mjs';
+import { socketPath, stateDir } from './paths.mjs';
+import { clean, pngSize } from './util.mjs';
 
 export const VERBS = new Set(['open', 'snapshot', 'find', 'read', 'click', 'hover', 'fill', 'type', 'press', 'select', 'check', 'uncheck',
   'scroll', 'wait', 'back', 'forward', 'reload', 'batch', 'shot', 'eval', 'dialog', 'done']);
@@ -104,6 +103,11 @@ class Tab {
     this.loading = false; this.dialog = null; this.ctx = null;
     this.waiting = new Set();
     cdp.on('event', (method, p, sid2) => {
+      // The tab closed, or Chrome let go of it: whatever waits for the page hears it at once.
+      if ((method === 'Target.detachedFromTarget' && p.sessionId === sid) || (method === 'Target.targetDestroyed' && p.targetId === targetId)) {
+        this.gone = true;
+        for (const stop of [...this.waiting]) stop(new Fail('the tab was closed', 2));
+      }
       if (sid2 !== sid) return;
       if (method === 'Page.frameStartedLoading' && p.frameId === this.frameId) this.loading = true;
       else if (method === 'Page.frameStoppedLoading' && p.frameId === this.frameId) this.loading = false;
@@ -126,11 +130,12 @@ class Tab {
 
   /** A DevTools call on this tab. A page stopped at a dialog answers nothing: the call ends there, and every call has a limit. */
   send(method, params = {}, ms = 10000) {
+    if (this.gone) return Promise.reject(new Fail('the tab was closed', 2));
     if (this.dialog) return Promise.reject(new DialogOpen(dialogLine(this.dialog)));
     let timer, stop;
     const late = new Promise((_, reject) => {
       timer = setTimeout(() => reject(new Fail(`the page did not answer ${method} in ${ms / 1000} s`)), ms);
-      stop = () => reject(new DialogOpen(dialogLine(this.dialog)));
+      stop = (why) => reject(why ?? new DialogOpen(dialogLine(this.dialog)));
     });
     this.waiting.add(stop);
     return Promise.race([this.cdp.send(method, params, this.sid), late]).finally(() => { clearTimeout(timer); this.waiting.delete(stop); });
@@ -187,7 +192,8 @@ class Tab {
   /** The element id of a ref, refusing one of another document. */
   ref(text) {
     const m = /^@?([a-z])(\d+)$/.exec(String(text ?? ''));
-    if (!m) throw new Fail(`not a ref: ${text} (refs look like ${this.letter}12; take them from a snapshot)`);
+    // h1 to h6 are headings' tags, never refs anyone was given (those numbers are the document's own nodes).
+    if (!m || /^h[1-6]$/.test(text)) throw new Fail(`not a ref: ${text} (refs look like ${this.letter}12; take them from a snapshot)`);
     if (m[1] !== this.letter) throw new Stale(`${text} is of an earlier page`);
     return Number(m[2]);
   }
@@ -206,6 +212,9 @@ const VALUED = new Set(['textbox', 'searchbox', 'combobox', 'spinbutton', 'slide
 
 // A field for a password, a code sent to a phone or a card, by what it says of itself.
 const SECRET = /(^|\s)(cc-|one-time-code|\S*password)/;
+// The same by the field's name or id, for pages that say nothing in autocomplete (and for a
+// password shown as text by a "show" button).
+const SECRET_NAME = /passw|pwd|card.?num|cc.?(num|csc|cvc|cvv)|(^|[^a-z])(cvc|cvv|csc|otp)([^a-z]|$)|security.?code|one.?time/;
 const NOT_OURS = 'holds a password, a code or a card: ask the person to type it in the pane';
 
 const prop = (n, name) => n.properties?.find((p) => p.name === name)?.value?.value;
@@ -241,9 +250,11 @@ async function capture(tab) {
   const attributes = doc.nodes.attributes ?? [];
   for (let at = 0; at < attributes.length; at++) {
     const a = attributes[at];
-    for (let i = 0; a && i + 1 < a.length; i += 2) {
+    if (!a?.length || !['INPUT', 'TEXTAREA'].includes(strings[doc.nodes.nodeName[at]])) continue;
+    for (let i = 0; i + 1 < a.length; i += 2) {
       const name = strings[a[i]]?.toLowerCase(), value = strings[a[i + 1]]?.toLowerCase() ?? '';
-      if ((name === 'type' && value === 'password') || (name === 'autocomplete' && SECRET.test(value))) secret.add(doc.nodes.backendNodeId[at]);
+      if ((name === 'type' && value === 'password') || (name === 'autocomplete' && SECRET.test(value))
+        || ((name === 'name' || name === 'id') && SECRET_NAME.test(value))) secret.add(doc.nodes.backendNodeId[at]);
     }
   }
   const byId = new Map(nodes.map((n) => [n.nodeId, n]));
@@ -497,6 +508,29 @@ async function press(tab, ev) {
   for (const c of keyCalls(ev)) await tab.send(c.method, c.params);
 }
 
+/**
+ * Refuses when what has the keyboard is a field for a password, a code or a card, or sits in a
+ * frame of another site, where this cannot look (a payment or sign-in form, as a rule).
+ */
+async function notSecret(tab) {
+  const what = await tab.run(function (rule, names) {
+    let e = document.activeElement;
+    for (let i = 0; e && i < 20; i++) {
+      if (e.shadowRoot?.activeElement) { e = e.shadowRoot.activeElement; continue; }
+      if (e.tagName !== 'IFRAME' && e.tagName !== 'FRAME') break;
+      let inner = null;
+      try { inner = e.contentDocument; } catch {}
+      if (!inner) return 'frame';
+      e = inner.activeElement;
+    }
+    if (!e?.getAttribute) return null;
+    const say = (k) => (e.getAttribute(k) ?? '').toLowerCase();
+    return e.type === 'password' || new RegExp(rule).test(say('autocomplete')) || new RegExp(names).test(`${say('name')} ${say('id')}`) ? 'secret' : null;
+  }, SECRET.source, SECRET_NAME.source);
+  if (what === 'secret') throw new Fail(`the focused field ${NOT_OURS}`);
+  if (what === 'frame') throw new Fail('the focused field is inside a frame of another site, which may be a payment or sign-in form: ask the person to type there, in the pane');
+}
+
 /** One action. Resolves to the line that says what was done. */
 async function act(tab, cap, verb, a) {
   const needRef = () => { if (!a._[0]) throw new Fail(`${verb} needs a ref`); return [tab.ref(a._[0]), a._[0].replace(/^@/, '')]; };
@@ -535,21 +569,16 @@ async function act(tab, cap, verb, a) {
   }
   if (verb === 'type') {
     if (!a._.length) throw new Fail('type needs a text');
-    const secret = await tab.run(function (rule) {
-      let e = document.activeElement;
-      for (let next; e; e = next) {
-        next = e.shadowRoot?.activeElement ?? (e.tagName === 'IFRAME' ? e.contentDocument?.activeElement : null);
-        if (!next) break;
-      }
-      return Boolean(e) && (e.type === 'password' || new RegExp(rule).test((e.getAttribute?.('autocomplete') ?? '').toLowerCase()));
-    }, SECRET.source);
-    if (secret) throw new Fail(`the focused field ${NOT_OURS}`);
+    await notSecret(tab);
     await tab.send('Input.insertText', { text: a._.join(' ') });
     return 'typed into the focused field';
   }
   if (verb === 'press') {
     if (!a._.length) throw new Fail('press needs a key');
-    for (const k of a._) await press(tab, keyEvent(k));
+    const keys = a._.map(keyEvent);
+    // Keys that write (a letter, a digit, a sign) are typing: Enter, Tab and the arrows are not.
+    if (keys.some((ev) => [...ev.name].length === 1 && !ev.ctrl && !ev.meta)) await notSecret(tab);
+    for (const ev of keys) await press(tab, ev);
     return `pressed ${a._.join(' ')}`;
   }
   if (verb === 'select') {
@@ -583,17 +612,20 @@ async function act(tab, cap, verb, a) {
     return `scrolled to ${how}`;
   }
   if (verb === 'wait') {
+    if (a.timeout !== undefined && !(Number(a.timeout) > 0)) throw new Fail('--timeout takes seconds: a number above 0 (60 at most)');
     const limit = Math.min(60, Math.max(0.1, Number(a.timeout) || 10)) * 1000, start = Date.now();
+    // A page that stops at a dialog, or a tab that closes, ends the wait: it is not "not yet".
+    const no = (e) => { if (e instanceof DialogOpen || e.code === 2) throw e; return false; };
     const want = a.gone ? { gone: a.gone } : a.url ? { url: a.url } : a.idle ? { idle: true } : a._[0] ? { text: a._.join(' ') } : null;
     if (!want) throw new Fail('wait needs something to wait for: wait <text>, --gone <text>, --url <part of the address> or --idle');
     for (;;) {
       let met = false;
-      if (want.idle) met = !tab.loading && (await tab.run(function () { return document.readyState === 'complete'; }).catch(() => false));
+      if (want.idle) met = !tab.loading && (await tab.run(function () { return document.readyState === 'complete'; }).catch(no));
       else met = await tab.run(function (w) {
         if (w.url) return location.href.includes(w.url);
         const has = (document.body?.innerText ?? '').toLowerCase().includes(String(w.text ?? w.gone).toLowerCase());
         return w.gone ? !has : has;
-      }, want).catch(() => false);
+      }, want).catch(no);
       const what = want.idle ? 'the page is loaded' : want.url ? `the address has ${JSON.stringify(want.url)}` : want.gone ? `${JSON.stringify(want.gone)} is gone` : `${JSON.stringify(want.text)} is on the page`;
       if (met) return `${what} (after ${((Date.now() - start) / 1000).toFixed(1)} s)`;
       if (Date.now() - start > limit) throw new Fail(`waited ${limit / 1000} s and it is not so: ${what}`);
@@ -652,6 +684,24 @@ function jpegSize(buf) {
  * person's clicks get lost.
  */
 async function shot(tab, o) {
+  const ext = o.png ? '.png' : '.jpg';
+  // Its own folder, the person's alone. Elsewhere only a new picture file: never over a file
+  // there is, and never a name that some program reads as anything but a picture.
+  const dir = path.join(stateDir(), 'shots');
+  let file = path.join(dir, `${new Date().toISOString().replace(/[:.]/g, '-')}${ext}`);
+  if (o.out) {
+    file = path.resolve(o.out);
+    const given = path.extname(file).toLowerCase();
+    if (given !== ext && !(ext === '.jpg' && given === '.jpeg')) throw new Fail(`--out takes a ${ext} file${o.png ? '' : ' (or --png and a .png file)'}`);
+    if (fs.existsSync(file)) throw new Fail(`${file} exists: shot never writes over a file`);
+  } else {
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    // Yesterday's pictures have been looked at.
+    for (const name of fs.readdirSync(dir)) {
+      const old = path.join(dir, name);
+      try { if (Date.now() - fs.statSync(old).mtimeMs > 86400000) fs.unlinkSync(old); } catch {}
+    }
+  }
   const view = await tab.run(function () { return { vw: innerWidth, vh: innerHeight }; });
   const scale = Math.min(2, Math.max(0.1, Number(o.scale) || 1)), format = o.png ? 'png' : 'jpeg';
   const frame = new Promise((resolve, reject) => {
@@ -663,10 +713,8 @@ async function shot(tab, o) {
   let p;
   try { p = await frame; } finally { await tab.send('Page.stopScreencast').catch(() => {}); }
   const buf = Buffer.from(p.data, 'base64');
-  const dir = path.join(os.tmpdir(), 'chrome-pane-shots');
-  const file = o.out ? path.resolve(o.out) : path.join(dir, `${new Date().toISOString().replace(/[:.]/g, '-')}.${o.png ? 'png' : 'jpg'}`);
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, buf, { mode: 0o600 });
+  try { fs.writeFileSync(file, buf, { mode: 0o600, flag: 'wx' }); }
+  catch (e) { throw new Fail(e.code === 'EEXIST' ? `${file} exists: shot never writes over a file` : `could not write ${file}: ${e.code === 'ENOENT' ? 'its folder does not exist' : e.message}`); }
   const size = o.png ? pngSize(p.data) : jpegSize(buf);
   const tokens = size ? Math.ceil(size.w / 28) * Math.ceil(size.h / 28) : null;
   return `${file}\n${size ? `${size.w}x${size.h} px, ` : ''}${Math.round(buf.length / 1024)} KB${tokens ? `, about ${tokens} tokens to look at` : ''}. Read the file to see it.`;
@@ -707,7 +755,9 @@ async function openPaneAt(url) {
 
 /** Runs one agent command. Resolves to its exit code; what it has to say goes to `out`. */
 export async function runAgent(verb, argv, io = {}) {
-  const out = io.out ?? ((s) => process.stdout.write(`${s}\n`));
+  // What a command prints is mostly the page's own words: never its control codes.
+  const say = io.out ?? ((s) => process.stdout.write(`${s}\n`));
+  const out = (s) => say(clean(s));
   let cdp = null, tab = null;
   try {
     const o = parse(argv);
@@ -792,7 +842,7 @@ export async function runAgent(verb, argv, io = {}) {
         const t = el.tagName === 'TABLE' ? el : el.querySelector('table');
         return t ? { text: [...t.rows].map((r) => [...r.cells].map((c) => c.innerText.replace(/\s+/g, ' ').trim()).join('\t')).join('\n') } : { noTable: true };
       };
-      const got = what && /^@?[a-z]\d+$/.test(what) ? await tab.on(tab.ref(what), textOf, null, Boolean(o.table)) : await tab.run(textOf, what ?? null, Boolean(o.table));
+      const got = what && /^@?[a-z]\d+$/.test(what) && !/^h[1-6]$/.test(what) ? await tab.on(tab.ref(what), textOf, null, Boolean(o.table)) : await tab.run(textOf, what ?? null, Boolean(o.table));
       if (got.missing) throw new Fail(`nothing on the page matches ${what}`);
       if (got.noTable) throw new Fail('there is no table there');
       const text = got.text;

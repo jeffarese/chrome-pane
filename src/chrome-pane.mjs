@@ -136,7 +136,7 @@ async function main() {
     const { targetInfos } = await cdp.send('Target.getTargets');
     const pages = targetInfos.filter((t) => t.type === 'page' && !/^(devtools|chrome-extension|chrome-untrusted):/.test(t.url));
     if (o.json) console.log(JSON.stringify(pages.map(({ targetId, title, url }) => ({ id: targetId, title, url })), null, 2));
-    else for (const t of pages) console.log(`${t.title || '(untitled)'}\n  ${t.url}`);
+    else for (const t of pages) console.log(`${oneLine(t.title) || '(untitled)'}\n  ${oneLine(t.url)}`);
     cdp.close();
     return;
   }

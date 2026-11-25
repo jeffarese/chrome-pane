@@ -23,8 +23,8 @@ to allow, and shows one of its tabs where you and your agents already are.
 - **Agents read text, not pictures.** `chrome-pane snapshot` is the page's controls as a few
   lines, each with a ref. An action answers with only what changed. No screenshot per step.
 - **You stay in charge.** The pane's bar says what an agent is doing while it does it. Your
-  mouse and keys work at all times. Agents can't type into password, code or card fields, and
-  open only web addresses.
+  mouse and keys work at all times. The agent commands refuse to type into password, code and
+  card fields, and open only web addresses.
 - **From another computer.** Sit at one computer and watch a tab of the Chrome on another,
   through Herdr: the viewer sends only the cells of the picture that changed.
 - **Nothing to build.** Node and nothing else: no dependencies, no browser download.
@@ -121,7 +121,7 @@ filled e12 "Email"
 | `click`, `hover`, `check`, `uncheck <ref>`; `fill <ref> <text>`; `select <ref> <option>`; `type <text>`; `press <keys>`; `scroll [down\|up\|top\|bottom\|ref]` | What it did, then what changed in the page's controls and messages: `~` changed, `-` gone, `+` new. A new page prints its snapshot. |
 | `wait <text>` | When it is on the page. Or `--gone <text>`, `--url <part>`, `--idle`; `--timeout <s>`. |
 | `batch` | Several actions, one a line on its input, and one answer. |
-| `shot` | The path of a picture of the view, and what it costs to look at. |
+| `shot` | The path of a picture of the view, and what it costs to look at. `--out <new .jpg file>` puts it elsewhere. |
 | `dialog accept\|dismiss` | Answers the page's alert or question. |
 | `eval <js>` | The value. Not among the commands the skill lets an agent run unasked. |
 | `done` | Nothing: the pane's bar stops saying an agent is at work. |
@@ -133,9 +133,13 @@ A ref is a letter and Chrome's own number for the element: it stays good for as 
 element lives, and the letter changes with every page loaded, so a ref from an earlier page is
 refused (with the page there is now) instead of landing on something else.
 
-What an agent's commands refuse: any address that is not http or https; filling or typing into
-a password, one-time-code or card field (you type those in the pane); printing such a field's
-value.
+What the commands refuse: any address that is not http or https; writing into a password,
+one-time-code or card field with `fill`, `type` or `press` (you type those in the pane), or
+into a field inside another site's frame, where a payment form usually is; printing such a
+field's value; writing a picture over a file. They know such a field by its type, its
+`autocomplete` or its name, so a page that hides what a field is can get past them, and `eval`
+runs whatever JavaScript it is given: these are limits for an agent that means well, not a
+wall. [SECURITY.md](SECURITY.md) says what is and is not protected.
 
 **The skill.** `chrome-pane skill install` (which `./install.sh` runs) links
 `skills/chrome-pane` into `~/.claude/skills`, `~/.agents/skills` and `~/.codex/skills`, for

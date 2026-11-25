@@ -7,7 +7,7 @@ import { InputParser } from './input.mjs';
 import { keyCalls } from './keys.mjs';
 import { notesDir, readAsk, readNote, registerPane, unregisterPane, writeAsk } from './panes.mjs';
 import { changedCells, decodePng, encodePng } from './png.mjs';
-import { barLine, fit, normalizeUrl, place, pngSize, shortAddress, toPage, width } from './util.mjs';
+import { barLine, fit, normalizeUrl, oneLine, place, pngSize, shortAddress, toPage, width } from './util.mjs';
 
 const ST = '\x1b\\';
 const MOUSE_ON = '\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1006h';
@@ -70,7 +70,14 @@ export class Viewer {
     // only what is drawn and when: safe to leave on in a pane someone types passwords in.
     const log = process.env.CHROME_PANE_DEBUG || process.env.CHROME_PANE_TRACE;
     this.quiet = !process.env.CHROME_PANE_DEBUG;
-    this.debug = log ? (...a) => fs.appendFileSync(log, `${Date.now() % 10000000} ${a.map((x) => (typeof x === 'string' ? x : JSON.stringify(x))).join(' ')}\n`) : null;
+    this.debug = null;
+    if (log) {
+      // The log can hold what was typed: a file of the person's alone, and never through a link
+      // someone else left at that path.
+      const fd = fs.openSync(log, fs.constants.O_WRONLY | fs.constants.O_APPEND | fs.constants.O_CREAT | fs.constants.O_NOFOLLOW, 0o600);
+      try { fs.fchmodSync(fd, 0o600); } catch {}
+      this.debug = (...a) => fs.writeSync(fd, `${Date.now() % 10000000} ${a.map((x) => (typeof x === 'string' ? x : JSON.stringify(x))).join(' ')}\n`);
+    }
   }
 
   w(s) { return this.out.write(s); }
@@ -268,7 +275,7 @@ export class Viewer {
     clearTimeout(this.agentTimer);
     const note = this.tab ? readNote(this.tab.targetId) : null;
     const left = note ? 5000 - (Date.now() - note.at) : 0;
-    const now = left > 0 ? String(note.text).replace(/[\x00-\x1f\x7f]/g, ' ') : null;
+    const now = left > 0 ? oneLine(note.text) : null;
     if (left > 0) this.agentTimer = setTimeout(() => this.readAgent(), left + 20);
     if (now === this.agent) return;
     const was = this.agent;
@@ -443,7 +450,7 @@ export class Viewer {
     else if (this.mode === 'page' && this.tab) text = ` ‹  ›  ↻  ${barLine(this.tab.url, this.tab.title, cols - hint.length - 10)}`;
     else text = ' Chrome';
     this.w(`\x1b[1;1H\x1b[0;7m${fit(text, cols - hint.length)}${hint}\x1b[0m`);
-    if (this.mode === 'page' && this.tab) this.w(`\x1b]2;${(this.tab.title || this.tab.url || 'Chrome').replace(/[\x00-\x1f\x7f]/g, ' ').slice(0, 120)}${ST}`);
+    if (this.mode === 'page' && this.tab) this.w(`\x1b]2;${oneLine(this.tab.title || this.tab.url || 'Chrome').slice(0, 120)}${ST}`);
   }
 
   drawTabs() {
