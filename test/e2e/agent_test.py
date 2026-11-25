@@ -46,7 +46,7 @@ NEXT = '<!doctype html><title>Second page</title><body><h1>Second</h1><p>Text of
 LONG = ('<!doctype html><title>Long page</title><body style="margin:20px;font:16px sans-serif"><h1>Long</h1><nav aria-label="Contents">'
         + ''.join('<a href="#c%d">Entry %d</a> ' % (i, i) for i in range(1, 31)) + '</nav>'
         + ''.join('<h2 id=c%d style="margin-top:%dpx">Chapter %d</h2><p>Words of chapter %d.' % (i, 900, i, i) for i in range(1, 4))
-        + '<p style="margin-top:900px"><button onclick="document.title=\'bottom clicked\'">Bottom button</button>')
+        + '<p style="margin-top:900px"><button onclick="document.title=\'bottom clicked\'">Bottom button</button> <select aria-label="Pace"><option>Slow<option>Fast</select>')
 # A page that tries to talk to the terminal: an Esc sequence in its title and its text, and the
 # one-byte forms of Esc [ and of the end of a sequence.
 ESC = '<!doctype html><title>Sneaky\x1b]52;c;eA==\x07 title</title><body><h1>Esc\x1b[31m here</h1><p>and \x9b31m too\x9c'
@@ -144,6 +144,10 @@ step('snapshot: a password is said to be there, not what it is', '=[filled]' in 
 step('snapshot: nor a card\'s code, known by the field\'s name', 'textbox "Code" =[filled]' in snap)
 step('snapshot: it is short (%d characters)' % len(snap), len(snap) < 900)
 name, pw, card, colour, gift, save, delete = (ref(snap, w) for w in ('"Name"', '"Password"', '"Card"', '"Colour"', '"Gift wrap"', '"Save"', '"Delete"'))
+
+heading = ref(snap, 'h1 "Order"')
+code, text, _ = run('fill', '%s%d' % (heading[0], int(heading[1:]) + 1), 'x')
+step('fill: the text of a heading is not a field, and that is what it says', code == 1 and 'cannot be filled: it is not a text field' in text)
 
 code, text, _ = run('find', 'save')
 step('find: the button, and where it is', code == 0 and ref(text, 'button "Save"') == save and '(in view)' in text)
@@ -246,6 +250,7 @@ step('back and forward', back_ok and code == 0 and text.split('\n')[0] == 'Secon
 code, text, _ = run('open', site.replace('http://', '') + '/long')
 step('open: goes there and prints the page', code == 0 and text.split('\n')[0] == 'Long page' and '(0 above, ' in text)
 step('open: a wall of links is cut, and headings out of view map the page', re.search(r'… \d+ more links here', text) is not None and 'h2 "Chapter 3" (↓)' in text and 'Bottom button' not in text)
+step('open: the options of a list that is out of view are out of view with it', 'option "Slow"' not in text and 'combobox' not in text)
 nav, chapter = ref(text, 'navigation'), ref(text, 'h2 "Chapter 2"')
 step('the cut names the part to ask for', '(snapshot --in %s, or find <text>)' % nav in text)
 code, text, _ = run('snapshot', '--in', nav)
@@ -255,7 +260,7 @@ at = re.search(r'view \d+x\d+ at (\d+) of', text)
 step('scroll to a heading by its ref', code == 0 and at is not None and int(at.group(1)) > 500 and '%s h2 "Chapter 2"\n' % chapter in text)
 code, text, _ = run('scroll', 'bottom')
 at = re.search(r'view \d+x\d+ at (\d+) of', text)
-step('scroll: prints what is now in view', code == 0 and at is not None and int(at.group(1)) > 1000 and 'button "Bottom button"' in text)
+step('scroll: prints what is now in view', code == 0 and at is not None and int(at.group(1)) > 1000 and 'button "Bottom button"' in text and 'combobox "Pace"' in text)
 run('scroll', 'top')
 code, text, _ = run('find', 'Bottom button')
 step('find: says a thing is below', code == 0 and '(↓ below)' in text)

@@ -346,18 +346,21 @@ function render(cap, tab, o = {}) {
   const id = (n) => (n.backendDOMNodeId ? `${tab.letter}${n.backendDOMNodeId}` : null);
   const lead = (n) => (n.backendDOMNodeId ? `${tab.letter}${n.backendDOMNodeId} ` : '');
   let shown = 0, total = 0, above = 0, below = 0, farHeadings = 0, moreHeadings = 0;
-  const build = (n) => {
+  // `held`: where the control that holds this one is, for what has no box of its own.
+  const build = (n, held = null) => {
     const role = n.role?.value;
-    if (n.ignored || SKIP.has(role)) return kids(cap, n).flatMap(build);
+    if (n.ignored || SKIP.has(role)) return kids(cap, n).flatMap((k) => build(k, held));
     if (role === 'StaticText') {
       if (!o.text) return [];
       const t = n.name?.value?.trim(), where = place(cap, cap.byId.get(n.parentId) ?? n);
       return t && (all || where === 'in' || where === null) ? [{ line: quote(t, 160), kids: [], kind: 'text' }] : [];
     }
-    const children = kids(cap, n).flatMap(build);
+    const control = isControl(n) && n.backendDOMNodeId;
+    // The options of a closed list have no box: they are where their list is.
+    const where = control ? place(cap, n) ?? held : null;
+    const children = kids(cap, n).flatMap((k) => build(k, control ? where : held));
     const name = n.name?.value?.trim();
-    if (isControl(n) && n.backendDOMNodeId) {
-      const where = place(cap, n);
+    if (control) {
       if (where === 'none') return children;
       total++;
       if (!all && where !== 'in' && where !== null) { if (where === 'above') above++; else below++; return children; }
@@ -542,7 +545,7 @@ async function act(tab, cap, verb, a) {
   }
   if (verb === 'check' || verb === 'uncheck') {
     const [id, ref] = needRef(), want = verb === 'check';
-    const now = await tab.on(id, function () { return 'checked' in this ? this.checked : this.getAttribute('aria-checked') === 'true'; });
+    const now = await tab.on(id, function () { return 'checked' in this ? this.checked : this.getAttribute?.('aria-checked') === 'true'; });
     if (now === want) return `${ref}${named(id)} was already ${want ? 'checked' : 'unchecked'}`;
     await mouse(tab, await point(tab, id, ref), true);
     return `${want ? 'checked' : 'unchecked'} ${ref}${named(id)}`;
@@ -555,6 +558,7 @@ async function act(tab, cap, verb, a) {
     const kind = await tab.on(id, function () {
       if (this.tagName === 'SELECT') return 'select';
       if (this.disabled || this.readOnly) return 'locked';
+      if (typeof this.focus !== 'function') return 'not a field';
       this.focus();
       if (typeof this.select === 'function') this.select();
       else if (this.isContentEditable) getSelection().selectAllChildren(this);
