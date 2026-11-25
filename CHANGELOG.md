@@ -14,6 +14,10 @@
 - Alt+← and Alt+→ in a field that is being typed in move by a word, as Option and an arrow do
   on a Mac, instead of going back and forward out of a half-filled form.
 - A snapshot no longer lists the options of a list that is out of view.
+- A benchmark (`bench/`): agents do eight browser tasks on a made-up shop with chrome-pane,
+  Claude in Chrome and cua, and the shop's server checks each outcome. It reports time, tokens,
+  cost and failures by method, task and tool, and compares two runs. `bench/micro.mjs` times
+  chrome-pane's own commands with no model.
 
 ## 0.1.0
 

@@ -361,7 +361,11 @@ with. In short:
 ```sh
 npm test                 # the input parser, keys, layout, pictures and the agent commands' arguments
 sh test/e2e/run.sh       # the viewer and an agent's commands against a headless Chrome with a throwaway profile
+node bench/run.mjs       # agents doing browser tasks with chrome-pane, Claude in Chrome and cua: time, tokens, failures
+node bench/micro.mjs     # chrome-pane's commands alone, with no model: how long each takes, how much it prints
 ```
+
+[bench/README.md](bench/README.md) says what the benchmark measures and how to read it.
 
 The end-to-end tests start their own headless Chrome with an empty profile and never touch
 yours.
