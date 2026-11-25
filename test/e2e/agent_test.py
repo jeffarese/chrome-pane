@@ -74,14 +74,26 @@ if pid == 0:
     os.execve(launcher, [launcher, 'view', site + '/', '--user-data-dir', profile], env)
 fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack('HHHH', ROWS, COLS, 0, 0))
 out = b''
+# What the terminal says of picture commands. None: nothing (a terminal that never answers).
+# 'ok': it answers the viewer's questions. 'gone': it also says, once, that it does not have the
+# picture it is told to show, as a screen does that Herdr sent the pane's text again.
+answers, answered, gone_at = None, set(), None
 def terminal():
     """Plays the terminal for as long as the viewer runs: takes what it writes, answers its queries."""
-    global out
+    global out, answers, gone_at
+    tail = b''
     while True:
         try: data = os.read(fd, 1 << 16)
         except OSError: return
         if not data: return
         out += data
+        seen, tail = tail + data, (tail + data)[-80:]
+        if answers:
+            for m in re.finditer(rb'\x1b_Ga=q,i=(\d+),', seen):
+                if m.group(1) not in answered: answered.add(m.group(1)); os.write(fd, b'\x1b_Gi=' + m.group(1) + b';OK\x1b\\')
+        if answers == 'gone':
+            m = re.search(rb'\x1b_Ga=p,i=(\d+),p=1,q=1[^\x1b]*\x1b', seen)
+            if m: answers, gone_at = 'ok', len(out); os.write(fd, b'\x1b_Gi=' + m.group(1) + b',p=1;ENOENT: image not found\x1b\\')
         if b'\x1b[16t' in data: os.write(fd, b'\x1b[6;%d;%dt' % (cell_h, cell_w))
         if b'\x1b[?1016$p' in data: os.write(fd, b'\x1b[?1016;1$y')
         if b'\x1b[c' in data: os.write(fd, b'\x1b[?62c')
@@ -141,7 +153,9 @@ step('find: nothing found is said so', code == 0 and text.startswith('nothing on
 n = len(out)
 code, text, _ = run('fill', name, 'Ada Lovelace')
 step('fill: says what it did and what changed', code == 0 and text == 'filled %s "Name"\n~ %s textbox "Name" ="Ada Lovelace"\n' % (name, name))
-step('the pane says an agent is acting, in its bar and to Herdr', shown(b'Agent: fill', 3, n) and shown(b'\x1b]7501;state=working:app=chrome', 3, n))
+# Herdr reads a full-screen program whose turn ended by turning the mouse wheel in it, and then
+# sends every screen the pane's text again without its pictures: the pane never says it works.
+step('the pane says an agent is acting, in its bar (and never to Herdr, which would scroll the page)', shown(b'Agent: fill', 3, n) and b'state=working' not in out)
 code, text, _ = run('fill', pw, 'secret')
 step('fill: a password is refused', code == 1 and 'ask the person' in text and value('document.getElementById("pw").value') == 'hunter2')
 code, text, _ = run('fill', card, '4111111111111111')
@@ -274,7 +288,7 @@ step('when that tab closes, the pane is back on the page that opened it', follow
 
 n = len(out)
 code, text, _ = run('done')
-step('done: the pane is the person\'s again', code == 0 and shown(b'\x1b]7501;state=idle:app=chrome', 7, n))
+step('done: the pane is the person\'s again', code == 0 and shown(' ‹  ›  ↻ '.encode(), 7, n))
 
 n = len(out)
 os.write(fd, b'\x14')
@@ -292,6 +306,21 @@ code, text, _ = run('snapshot')
 step('x in the list of tabs asks before it closes a tab of the real Chrome', asked and kept and closed and code == 2)
 code, text, _ = run('open', site + '/next')
 step('open: a pane that shows no tab is asked to show the page, not joined by a second', code == 0 and text.split('\n')[0] == 'Second page')
+
+# A screen that no longer has the page's picture says so when asked to show it again.
+WHOLE = rb'a=T,f=100,i=\d+,p=1,q=2,C=1(?:,c=\d+,r=\d+)?,m='
+answers = 'gone'
+end = time.time() + 10
+while time.time() < end and not (gone_at and re.search(WHOLE, out[gone_at:])): time.sleep(0.1)
+step('a screen that lost the picture is sent the page again, whole', bool(gone_at and re.search(WHOLE, out[gone_at:])))
+n = len(out)
+code, text, _ = run('open', site + '/')
+step('a terminal that answers is asked after each picture, and the page goes on being drawn', code == 0 and shown(b'a=T,f=100', 8, n) and len(answered) > 1)
+answers = None
+time.sleep(0.5)
+n = len(out)
+code, text, _ = run('open', site + '/long')
+step('one that stops answering does not stop the page', code == 0 and shown(b'a=T,f=100', 12, n))
 
 n = len(out)
 os.write(fd, b'\x11')

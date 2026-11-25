@@ -23,8 +23,15 @@ function charKey(c) {
   return key(c);
 }
 
+/** What a terminal says of a picture command: `i=7,p=1;OK`, or an error like `i=7;ENOENT: image not found`. */
+function gfxReply(body) {
+  const cut = body.indexOf(';');
+  const head = cut < 0 ? body : body.slice(0, cut), text = cut < 0 ? '' : body.slice(cut + 1);
+  return { type: 'reply', kind: 'gfx', id: Number(/(?:^|,)i=(\d+)/.exec(head)?.[1] ?? 0), ok: text === 'OK', text };
+}
+
 export class InputParser {
-  constructor() { this.dec = new StringDecoder('utf8'); this.buf = ''; this.paste = null; }
+  constructor() { this.dec = new StringDecoder('utf8'); this.buf = ''; this.paste = null; this.apcAt = 0; }
 
   /** True when bytes are held back that may be the start of a longer sequence (a lone Esc). */
   get pending() { return this.paste === null && this.buf.length > 0; }
@@ -36,6 +43,7 @@ export class InputParser {
   parse(flush) {
     const out = [], s = this.buf;
     let i = 0;
+    if (!s.startsWith('\x1b_')) this.apcAt = 0;
     while (i < s.length) {
       if (this.paste !== null) {
         const end = s.indexOf(PASTE_END, i);
@@ -55,6 +63,15 @@ export class InputParser {
         if (m) { i = CSI.lastIndex; const ev = this.csi(m); if (ev) out.push(ev); continue; }
         if (!flush && s.length - i < 48) break;
         out.push(key('Escape')); i++; continue;
+      }
+      if (n === '_' && (i + 2 >= s.length ? !flush : s[i + 2] === 'G')) {
+        // The terminal's answer to a picture command, Esc _ G … Esc \: never keys for the page.
+        const end = s.indexOf('\x1b\\', i + 2);
+        if (end >= 0) { this.apcAt = 0; out.push(gfxReply(s.slice(i + 3, end))); i = end + 2; continue; }
+        // The rest of it is on its way. One that never ends is dropped whole after a second.
+        this.apcAt ||= Date.now();
+        if (s.length - i < 512 && Date.now() - this.apcAt < 1000) break;
+        this.apcAt = 0; i = s.length; continue;
       }
       if (n === 'O') {
         if (i + 2 >= s.length) { if (!flush) break; } else if (LETTER[s[i + 2]]) { out.push(key(LETTER[s[i + 2]])); i += 3; continue; }

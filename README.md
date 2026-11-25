@@ -131,7 +131,7 @@ filled e12 "Email"
 | `done` | Nothing: the pane's bar stops saying an agent is at work. |
 
 An agent's command acts on the tab shown by the pane of the Herdr tab it runs in. While it does,
-the pane's bar says what it is doing and Herdr lists the pane as working.
+the pane's bar says what it is doing.
 
 A ref is a letter and Chrome's own number for the element: it stays good for as long as the
 element lives, and the letter changes with every page loaded, so a ref from an earlier page is
@@ -171,10 +171,16 @@ it can:
   default (`--quality auto`) the viewer asks for half-size frames then, and for the full-size
   one again when the page rests. `--quality fast` never asks for full size; `--quality sharp`
   always does.
-- **No more than the link carries.** After sending a picture the viewer waits for as long as
-  it takes 3 MB a second to carry it (`--rate <MB a second>`; lower it over a slow link). A
-  link fed more than it carries falls behind, and the pane on the other computer goes blank
-  while it catches up.
+- **No more than each screen has taken.** After a picture the viewer asks a question that
+  every screen showing the pane answers once it has drawn it, and sends the next picture when
+  they all have: the pace is that of the slowest link, whatever it is. Herdr keeps a few
+  megabytes for a screen that is behind and then drops them, so a picture bigger than that
+  is not sent whole to a screen on another computer: the page stays at half size there. A
+  terminal that answers nothing gets 3 MB a second (`--rate <MB a second>`).
+- **A picture that went missing is sent again.** Herdr sends a screen the pane's text without
+  its pictures when the screen connects, comes back, or fell behind. Every few seconds the
+  viewer asks the screens whether they still have the page's picture, and sends the page
+  again to one that says no.
 
 A frame equal to the last one is not sent. When Chrome's window is on a screen of one pixel a
 point, full size has no more pixels than half, and the picture stays as soft as that screen is.

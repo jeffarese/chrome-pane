@@ -11,7 +11,11 @@ First release.
 - In Herdr: opens as a pane of the tab it is called from, listed with the agents as Chrome, on
   every computer showing that tab.
 - Frames sent pixel for pixel, only the cells that changed, at half size while the whole page
-  moves, and never faster than the link carries.
+  moves, and never faster than the screens showing the pane take them: each screen says when
+  it has drawn a picture, and one that lost the page's picture is sent it again.
+- The pane's bar says what an agent is doing in it. Herdr is not told the pane is working:
+  it reads a full-screen program whose turn has ended by scrolling it, which moved the page
+  and left it black.
 - The agent commands refuse to write into password, one-time-code and card fields, open only
   web addresses, and print what a page wrote without its control codes.
 - Commands for agents (`open`, `snapshot`, `find`, `read`, `click`, `fill`, `select`, `wait`,

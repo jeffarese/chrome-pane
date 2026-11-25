@@ -100,3 +100,17 @@ test('where a frame goes, and back to the page', () => {
   const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13]), Buffer.from('IHDR'), Buffer.from([0, 0, 6, 64, 0, 0, 3, 132]), Buffer.alloc(8)]);
   assert.deepEqual(pngSize(png.toString('base64')), { w: 1600, h: 900 });
 });
+
+test('a terminal\'s answers to picture commands are never keys', () => {
+  const p = new InputParser();
+  assert.deepEqual(p.feed('\x1b_Gi=4100007;OK\x1b\\'), [{ type: 'reply', kind: 'gfx', id: 4100007, ok: true, text: 'OK' }]);
+  assert.deepEqual(p.feed('\x1b_Gi=12,p=1;ENOENT: image not found\x1b\\a'),
+    [{ type: 'reply', kind: 'gfx', id: 12, ok: false, text: 'ENOENT: image not found' }, { type: 'key', name: 'a', shift: false, alt: false, ctrl: false, meta: false }]);
+  // Cut in two by the link: held back, even when the time for a lone Esc has passed.
+  assert.deepEqual(p.feed('\x1b_Gi=7;O'), []);
+  assert.deepEqual(p.flush(), []);
+  assert.deepEqual(p.feed('K\x1b\\'), [{ type: 'reply', kind: 'gfx', id: 7, ok: true, text: 'OK' }]);
+  // Alt+_ is still a key.
+  p.feed('\x1b_');
+  assert.deepEqual(p.flush().map((e) => [e.name, e.alt]), [['_', true]]);
+});

@@ -10,6 +10,11 @@ import { changedCells, decodePng, encodePng } from './png.mjs';
 import { barLine, fit, normalizeUrl, oneLine, place, pngSize, shortAddress, toPage, width } from './util.mjs';
 
 const ST = '\x1b\\';
+// The ids of the questions asked of the screens, above every picture's.
+const PROBE = 4100000;
+// A picture of more characters than this is not sent whole to a screen on another computer:
+// Herdr drops what it holds for a screen that is behind once that passes four megabytes or so.
+const BIG = 3000000;
 const MOUSE_ON = '\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1006h';
 const MOUSE_OFF = '\x1b[?1016l\x1b[?1006l\x1b[?1003l\x1b[?1002l\x1b[?1000l';
 const BUTTONS = ['left', 'middle', 'right'];
@@ -49,6 +54,18 @@ export class Viewer {
     this.tiles = [];             // the small pictures laid over the big one since it was sent
     this.z = 0;
     this.nextAt = 0;             // no picture before then: the link has what was sent to carry
+    this.probe = 0;              // the last question asked of the screens showing this pane
+    this.asked = new Map();      // question -> how many screens have answered it
+    this.viewers = 0;            // how many screens answer: the next picture waits for all of them
+    this.settling = null;        // the question the next picture is waiting on
+    this.unsettled = 0;          // characters of pictures written since the last question
+    this.speed = 0;              // characters a millisecond the slowest screen took its last big picture at
+    this.heavy = false;          // full-size pictures of this page are more than a far screen can be sent
+    this.shownAs = '';           // the cells the picture on screen was placed in, to place it again
+    this.checkedAt = 0;
+    this.lostAt = 0;
+    this.lostWait = 0;
+    this.carefulUntil = 0;       // until then, pictures go by the clock: a screen stopped answering
     this.prevFrameAt = 0;
     this.held = 0;
     this.lastClick = { t: 0, x: 0, y: 0, button: '', count: 0 };
@@ -88,9 +105,11 @@ export class Viewer {
   flushed() { return new Promise((r) => this.out.write('', r)); }
   get scale() { return this.opts.scale || (this.term.cellH >= 26 ? 2 : 1); }
   /** The share of the pane's pixels (per side) that moving frames are sent at. */
-  get motion() { return this.quality === 'sharp' || this.scale < 2 ? 1 : 1 / this.scale; }
+  get motion() { return this.quality === 'sharp' ? 1 : this.scale < 2 ? (this.heavy ? 0.5 : 1) : 1 / this.scale; }
   /** Whether the size of the frames follows the page: half while it moves, full once it rests. */
-  get adaptive() { return this.motion < 1 && this.quality === 'auto' && !this.flat; }
+  get adaptive() { return this.motion < 1 && this.quality === 'auto' && !this.flat && !this.heavy; }
+  /** A screen on another computer: it takes pictures slower than any screen on this one would. */
+  get far() { return this.viewers > 0 && this.speed > 0 && this.speed < 8000; }
   /** The pane's size as one value: its cells and their pixels. */
   sizeKey() { return `${this.term.cols}x${this.term.rows} ${this.term.cellW}x${this.term.cellH}`; }
 
@@ -136,6 +155,7 @@ export class Viewer {
     try { await this.cdp.ready(); } catch (e) { return this.fail(e.message); }
     await this.cdp.send('Target.setDiscoverTargets', { discover: true });
     setInterval(() => this.refreshInfo(), 2000).unref();
+    setInterval(() => this.check(), 3000).unref();
     await this.begin();
   }
 
@@ -143,7 +163,7 @@ export class Viewer {
   measure() {
     return new Promise((resolve) => {
       this.measured = resolve;
-      this.w('\x1b[16t\x1b[?1016$p\x1b[c');
+      this.w(`\x1b[16t\x1b[?1016$p${this.question()}\x1b[c`);
       setTimeout(resolve, 700);
     }).then(() => { this.measured = null; if (!this.pixelMouse) this.w('\x1b[?1016l'); });
   }
@@ -326,9 +346,10 @@ export class Viewer {
     const now = left > 0 ? oneLine(note.text) : null;
     if (left > 0) this.agentTimer = setTimeout(() => this.readAgent(), left + 20);
     if (now === this.agent) return;
-    const was = this.agent;
     this.agent = now;
-    if (Boolean(was) !== Boolean(now)) this.w(`\x1b]7501;state=${now ? 'working' : 'idle'}:app=chrome${ST}`);
+    // Only the bar says so. Herdr is never told the pane is working: when a program's turn ends,
+    // Herdr reads a full-screen one by turning the mouse wheel in it and then sends every screen
+    // the pane's text again, which scrolls the page and takes its picture away.
     if (this.mode === 'page') this.drawBar();
   }
 
@@ -361,6 +382,7 @@ export class Viewer {
       this.lastHash = null;
       this.prevFrameAt = 0;
       this.flat = false;
+      this.heavy = false;
       // A page just opened or resized is shown sharp first; frames shrink once it moves.
       await this.frames(this.motion < 1 && this.quality === 'fast' ? 'half' : 'full', sid);
     } catch (e) { if (this.tab?.sid === sid) this.say(`Chrome refused: ${e.message}`); return; }
@@ -454,6 +476,8 @@ export class Viewer {
     } else if (method === 'Target.detachedFromTarget') {
       if (tab && p.sessionId === tab.sid) this.lost(tab, 'Chrome detached that tab.');
     } else if ((method === 'Page.frameNavigated' || method === 'Page.loadEventFired' || method === 'Page.navigatedWithinDocument') && tab && sid === tab.sid) {
+      // Another page may be light enough to be sent sharp.
+      if (method === 'Page.frameNavigated' && !p.frame?.parentId && this.heavy) { this.heavy = false; this.setRes(this.quality === 'fast' && this.motion < 1 ? 'half' : 'full'); }
       this.refreshInfo();
     } else if (method === 'Page.screencastVisibilityChanged' && tab && sid === tab.sid) {
       this.setHidden(!p.visible);
@@ -534,16 +558,29 @@ export class Viewer {
             // The terminal already has exactly this picture: show it again, for a few bytes.
             this.debug?.('frame', 'held', p.gen);
             this.raw = null;
-            await this.write(`\x1b[${this.geom.row0 + 1};${this.geom.col0 + 1}H\x1b_Ga=p,i=${held},p=1,q=2,C=1,c=${this.geom.c},r=${this.geom.r}${ST}${this.retire(held)}${this.dropTiles()}`);
+            this.shownAs = `,c=${this.geom.c},r=${this.geom.r}`;
+            // q=1: a screen that no longer has it says so (onGfx), and the page is sent again.
+            await this.write(`\x1b[${this.geom.row0 + 1};${this.geom.col0 + 1}H\x1b_Ga=p,i=${held},p=1,q=1,C=1${this.shownAs}${ST}${this.retire(held)}${this.dropTiles()}`);
+            await this.settle();
           } else {
             const wait = Math.max(this.lastDraw + this.minFrameMs, this.nextAt) - Date.now();
             if (wait > 0) await sleep(wait);
             if (this.tab?.sid !== sid || this.mode !== 'page') continue;
             // A newer frame came while this one waited its turn: that one is the one to show.
             if (this.frame) { this.cdp.send('Page.screencastFrameAck', { sessionId: p.sessionId }, sid).catch(() => {}); continue; }
-            this.lastDraw = Date.now();
             const res = this.res;
+            // More than Herdr keeps for a screen that is behind (BIG): on another computer it would
+            // never be seen. The page then stays at the size moving frames have.
+            if (res === 'full' && p.data.length > BIG && this.far && !this.heavy && this.quality !== 'sharp') {
+              this.debug?.('heavy', `${Math.round(p.data.length / 1024)}KB`);
+              this.heavy = true;
+              this.setRes('half');
+              this.cdp.send('Page.screencastFrameAck', { sessionId: p.sessionId }, sid).catch(() => {});
+              continue;
+            }
+            this.lastDraw = Date.now();
             const id = await this.drawFrame(p, res);
+            await this.settle();
             // Chrome's window is on a screen of one pixel a point: asked for full size, it has no
             // more to send than at half size, so there is nothing to switch between.
             if (res === 'full' && this.motion < 1 && this.drawnW && this.drawnW <= this.area().pxW * this.motion * 1.1) this.flat = true;
@@ -552,10 +589,97 @@ export class Viewer {
             if (id && !this.raw && res === 'full' && p.isolated && this.motion < 1) this.keep(p.hash, id);
           }
         }
+        // A page that never rests is asked about between its frames.
+        if (Date.now() - this.checkedAt > 2000) this.check();
         // Chrome sends the next frame only once this one is acknowledged: the pace follows the terminal.
         this.cdp.send('Page.screencastFrameAck', { sessionId: p.sessionId }, sid).catch(() => {});
       }
     } finally { this.drawing = false; }
+  }
+
+  /** A question every screen showing this pane answers once it has drawn all that was written before it. */
+  question() {
+    const id = PROBE + (this.probe = (this.probe % 1000) + 1);
+    this.asked.set(id, 0);
+    if (this.asked.size > 8) this.asked.delete(this.asked.keys().next().value);
+    return `\x1b_Ga=q,i=${id},s=1,v=1,t=d,f=24;AAAA${ST}`;
+  }
+
+  /**
+   * Waits until every screen showing this pane has drawn what was just written, so that no
+   * screen is ever sent more than it has taken. Herdr keeps a few megabytes for a screen that
+   * is behind (the app on another computer, over a slow link) and then drops them all, sending
+   * that screen the pane's text again without its pictures: a page gone black under its bar.
+   * A terminal that answers nothing is paced by the clock instead (sent()).
+   */
+  settle() {
+    const bytes = this.unsettled;
+    this.unsettled = 0;
+    const ask = this.question(), id = PROBE + this.probe, at = Date.now();
+    this.w(ask);
+    if (!this.viewers) return Promise.resolve();
+    return new Promise((resolve) => {
+      const done = (why) => {
+        const late = why === 'late';
+        clearTimeout(timer);
+        this.settling = null;
+        const ms = Date.now() - at;
+        if (why === 'lost') {
+          // The question went with the pictures: nobody will answer it.
+        } else if (late) {
+          // A screen went away, or is too far behind to answer in time: go on without it, but
+          // for a while no faster than it was taking pictures, or it would never catch up.
+          this.viewers = this.asked.get(id) ?? 0;
+          this.carefulUntil = Date.now() + 20000;
+          if (bytes > BIG && this.quality !== 'sharp' && !this.heavy) { this.heavy = true; this.setRes('half'); }
+        } else if (bytes > 200000) this.speed = bytes / Math.max(1, ms);
+        this.debug?.('settled', `${Math.round(bytes / 1024)}KB`, `${ms} ms`, why ?? '', `${this.viewers} screens`);
+        resolve();
+      };
+      // As long as the slowest screen would take it and two megabytes it may still have to
+      // draw (a link of 300 KB a second, when no picture has been timed yet), within reason.
+      const timer = setTimeout(() => done('late'), Math.min(15000, Math.max(2000, (bytes + 2e6) / (this.speed || 300))));
+      this.settling = { id, done };
+    });
+  }
+
+  /** A screen's answer to a picture command: to a question, or that it does not have the picture it was told to show. */
+  onGfx(ev) {
+    if (this.asked.has(ev.id)) {
+      const n = this.asked.get(ev.id) + 1;
+      this.asked.set(ev.id, n);
+      // One more screen than was counted on (it has just connected, or was behind): how fast it
+      // takes pictures is not known yet.
+      if (n > this.viewers) { this.viewers = n; this.speed = 0; this.carefulUntil = 0; }
+      if (this.settling?.id === ev.id && n >= this.viewers) this.settling.done();
+    } else if (!ev.ok && ev.id && ev.id === this.shown) this.repaint();
+  }
+
+  /**
+   * Asks the screens to show the picture they have again, which changes nothing on one that has
+   * it; one that does not answers so. Herdr sends a screen the pane's text without its pictures
+   * when it connects, comes back, or fell too far behind.
+   */
+  check() {
+    if (this.mode !== 'page' || !this.tab || !this.shown || !this.geom) return;
+    const now = Date.now();
+    if (now - this.lostAt < this.lostWait) return;
+    this.checkedAt = now;
+    this.debug?.('check', this.shown);
+    this.w(`\x1b[${this.geom.row0 + 1};${this.geom.col0 + 1}H\x1b_Ga=p,i=${this.shown},p=1,q=1,C=1${this.shownAs}${ST}`);
+  }
+
+  /** A screen does not have the picture: the page is sent again, whole. Less and less often if it keeps happening. */
+  repaint() {
+    const now = Date.now();
+    this.lostWait = now - this.lostAt < 30000 ? Math.min(60000, Math.max(3000, this.lostWait * 2)) : 0;
+    this.lostAt = now;
+    this.debug?.('repaint', this.shown);
+    this.settling?.done('lost');
+    // The screens that have the picture keep it until the new one is over it.
+    this.w(this.forget(true));
+    this.lastHash = null;
+    if (this.tab?.sid && this.mode === 'page') this.frames(this.res).catch(() => {});
   }
 
   /** Remembers that the terminal holds image `id` for the frame with this hash; the oldest of three goes. */
@@ -651,7 +775,11 @@ export class Viewer {
   }
 
   /** So many characters went to the terminal: the next picture waits for the link to carry them. */
-  sent(bytes) { this.nextAt = Date.now() + bytes / this.rate; }
+  sent(bytes) {
+    this.unsettled += bytes;
+    const now = Date.now(), careful = now < this.carefulUntil;
+    this.nextAt = this.viewers && !careful ? 0 : now + bytes / (careful ? Math.min(this.rate, this.speed || 300) : this.rate);
+  }
 
   /** Takes the parts laid over the big picture away. */
   dropTiles() {
@@ -669,7 +797,8 @@ export class Viewer {
     const id = (this.nextImage = (this.nextImage % 4000000) + 1);
     // Pixel for pixel when it can be: fitted to cells it is a pixel short of, it would be stretched.
     const exact = size.w === g.c * this.term.cellW && size.h === g.r * this.term.cellH;
-    const head = `a=T,f=100,i=${id},p=1,q=2,C=1${this.native(size) && !exact ? '' : `,c=${g.c},r=${g.r}`}`;
+    const cells = this.native(size) && !exact ? '' : `,c=${g.c},r=${g.r}`;
+    const head = `a=T,f=100,i=${id},p=1,q=2,C=1${cells}`;
     let s = `\x1b[${g.row0 + 1};${g.col0 + 1}H`;
     for (let i = 0; i < data.length; i += 4096) {
       const more = i + 4096 < data.length ? 1 : 0;
@@ -678,6 +807,7 @@ export class Viewer {
     // The new picture goes over the old one before the old one is dropped: no blank moment.
     s += this.retire(id) + this.dropTiles();
     this.geom = g;
+    this.shownAs = cells;
     this.drawnW = size.w;
     const t0 = Date.now();
     await this.write(s);
@@ -740,6 +870,7 @@ export class Viewer {
       if (!this.measured && this.mode === 'page') this.cast();
     } else if (ev.kind === 'mode' && ev.mode === 1016) this.pixelMouse = ev.value === 1 || ev.value === 3;
     else if (ev.kind === 'da') this.measured?.();
+    else if (ev.kind === 'gfx') this.onGfx(ev);
   }
 
   async history(step) {
