@@ -26,11 +26,15 @@ if (remove) {
   for (const f of ['chrome.svg', 'chrome.png']) fs.rmSync(path.join(icons, f), { force: true });
 } else {
   fs.mkdirSync(icons, { recursive: true });
-  // Chrome's own icon, from the installed app; the drawing that comes with this as a fallback.
+  // Chrome's own icon, from the Chrome installed here: this repository has none of Google's
+  // artwork. Without one, the plain globe that comes with this.
   const icns = '/Applications/Google Chrome.app/Contents/Resources/app.icns';
+  const pngs = ['google-chrome', 'chromium', 'chromium-browser'].map((n) => `/usr/share/icons/hicolor/128x128/apps/${n}.png`);
+  const out = path.join(icons, 'chrome.png');
   let icon = 'icons/chrome.svg';
   if (process.platform === 'darwin' && fs.existsSync(icns)
-    && spawnSync('/usr/bin/sips', ['-s', 'format', 'png', '-Z', '128', icns, '--out', path.join(icons, 'chrome.png')]).status === 0) icon = 'icons/chrome.png';
+    && spawnSync('/usr/bin/sips', ['-s', 'format', 'png', '-Z', '128', icns, '--out', out]).status === 0) icon = 'icons/chrome.png';
+  else if (pngs.some((f) => { try { fs.copyFileSync(f, out); return true; } catch { return false; } })) icon = 'icons/chrome.png';
   else fs.copyFileSync(fileURLToPath(new URL('./chrome.svg', import.meta.url)), path.join(icons, 'chrome.svg'));
   doc.programs.chrome = { name: 'Chrome', icon, tint: false, match: ['chrome-pane'] };
 }
