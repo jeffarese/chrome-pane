@@ -18,6 +18,22 @@ const BIG = 3000000;
 const MOUSE_ON = '\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1006h';
 const MOUSE_OFF = '\x1b[?1016l\x1b[?1006l\x1b[?1003l\x1b[?1002l\x1b[?1000l';
 const BUTTONS = ['left', 'middle', 'right'];
+// Whether what has the keyboard in the page takes text. A frame of another site cannot be looked
+// into: it may well be a field.
+const TYPING = `(() => {
+  let e = document.activeElement;
+  for (let i = 0; e && i < 20; i++) {
+    if (e.shadowRoot && e.shadowRoot.activeElement) { e = e.shadowRoot.activeElement; continue; }
+    if (e.tagName !== 'IFRAME' && e.tagName !== 'FRAME') break;
+    let inner = null;
+    try { inner = e.contentDocument; } catch {}
+    if (!inner) return true;
+    e = inner.activeElement;
+  }
+  if (!e) return false;
+  if (e.isContentEditable || e.tagName === 'TEXTAREA') return true;
+  return e.tagName === 'INPUT' && !/^(button|submit|reset|checkbox|radio|file|image|range|color|hidden)$/i.test(e.type);
+})()`;
 const MASK = { left: 1, right: 2, middle: 4 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const isPage = (t) => t.type === 'page' && !/^(devtools|chrome-extension|chrome-untrusted):/.test(t.url);
@@ -80,6 +96,7 @@ export class Viewer {
     this.tabs = [];
     this.sel = 0;
     this.closing = null;         // the tab that x was pressed on in the list: closed if x is pressed again
+    this.resend = false;         // Ctrl+R was pressed on the answer to a sent form: sent again if pressed again
     this.notice = null;          // a line shown in the bar for a moment
     this.backTo = null;          // the tab to return to when the one shown, which its page opened, closes
     this.startedAt = Date.now();
@@ -241,12 +258,14 @@ export class Viewer {
     const { targetInfo } = await this.cdp.send('Target.getTargetInfo', { targetId });
     // zoom: Chrome's zoom of this page (80% is 0.8; Chrome keeps one per site). points: the size
     // this pane gave the page, in the window's points. view: what the page shows, in CSS pixels.
-    this.tab = { targetId, sid, title: targetInfo.title, url: targetInfo.url, zoom: 1, points: null, view: null };
+    // posted: the page is the answer to a form that was sent (null: not known yet).
+    this.tab = { targetId, sid, title: targetInfo.title, url: targetInfo.url, zoom: 1, points: null, view: null, posted: null };
     this.shownAt = Date.now();
     this.announce();
     this.mode = 'page';
     this.editing = null;
     this.dialog = null;
+    this.resend = false;
     this.geom = null;
     this.hidden = false;
     this.mayFront = true;
@@ -254,6 +273,12 @@ export class Viewer {
     this.w(`${this.forget()}\x1b[0m\x1b[2J`);
     this.draw();
     await this.cdp.send('Page.enable', {}, sid);
+    // Which request brings each page, to know the answer to a sent form (see reload). No body is kept.
+    await this.cdp.send('Network.enable', { maxTotalBufferSize: 0, maxResourceBufferSize: 0 }, sid).catch(() => {});
+    // The page that is there came before this looked: Chrome's history says if a form led to it.
+    this.cdp.send('Page.getNavigationHistory', {}, sid).then((h) => {
+      if (this.tab?.sid === sid && this.tab.posted === null && h.entries[h.currentIndex]?.transitionType === 'form_submit') this.setPosted(true);
+    }).catch(() => {});
     // The tab may not be the one in front in Chrome: it still gets a caret and focus events.
     await this.cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true }, sid).catch(() => {});
     await this.cast();
@@ -315,7 +340,7 @@ export class Viewer {
   /** Tells agents which tab this pane shows (none while it shows the list of tabs), and the dialog its page stopped at. */
   announce() {
     // `at` is when this pane last took a tab: a dialog opening must not make it "the latest".
-    try { registerPane(this.tab?.targetId ?? null, this.where, this.tab ? this.dialog : null, this.shownAt ?? this.startedAt); } catch {}
+    try { registerPane(this.tab?.targetId ?? null, this.where, this.tab ? this.dialog : null, this.shownAt ?? this.startedAt, Boolean(this.tab?.posted)); } catch {}
     this.readAgent();
   }
 
@@ -439,6 +464,11 @@ export class Viewer {
 
   onEvent(method, p, sid) {
     const tab = this.tab;
+    if (method.startsWith('Network.')) {
+      // The request for the page itself: its method says whether a reload would send a form again.
+      if (method === 'Network.requestWillBeSent' && tab && sid === tab.sid && p.type === 'Document' && p.frameId === tab.targetId) this.setPosted(p.request?.method === 'POST');
+      return;
+    }
     if (method !== 'Page.screencastFrame') this.debug?.('chrome', method, p.targetInfo && !this.quiet ? { title: p.targetInfo.title, url: p.targetInfo.url.slice(0, 60) } : method === 'Page.screencastVisibilityChanged' ? p.visible : '');
     if (method === 'Page.screencastFrame') {
       if (!tab || sid !== tab.sid) return;
@@ -511,7 +541,7 @@ export class Viewer {
 
   drawBar() {
     const cols = this.term.cols;
-    const hint = this.mode === 'page' && this.editing === null && !this.dialog && cols >= 70 ? ' ^T tabs · ^L address · ^Q quit ' : '';
+    const hint = this.mode === 'page' && this.editing === null && !this.dialog && !this.resend && cols >= 70 ? ' ^T tabs · ^L address · ^Q quit ' : '';
     let text;
     if (this.editing !== null) text = ` Go to: ${this.editing}▏`;
     else if (this.dialog) text = ` ${this.dialog.type}: ${this.dialog.message}   (Enter: OK · Esc: cancel)`;
@@ -519,6 +549,7 @@ export class Viewer {
       const t = this.tabs.find((x) => x.targetId === this.closing);
       text = ` Close “${fit(t?.title || t?.url || 'this tab', 40).trimEnd()}” in Chrome?    x again: close it · any other key: keep it`;
     } else if (this.mode === 'tabs') text = ' Chrome tabs    ↑↓ move · Enter show · n new tab · x close tab · Esc back · q quit';
+    else if (this.mode === 'page' && this.tab && this.resend) text = ' This page answers a form you sent: a reload sends the form again.    ^R again: send it again · any other key: leave it';
     else if (this.mode === 'page' && this.tab && this.notice) text = ` ${this.notice}`;
     else if (this.mode === 'page' && this.tab && this.hidden) text = ' ⏸  Chrome is not drawing this tab (it is behind another one). Click or press a key to bring it forward.';
     else if (this.mode === 'page' && this.tab && this.agent) {
@@ -855,14 +886,19 @@ export class Viewer {
     if (this.mode !== 'page' || !this.tab) return ev.type === 'key' && (ev.name === 'q' || ev.name === 'Escape') ? this.quit() : undefined;
     const sid = this.tab.sid;
     if (this.hidden) this.front();
-    if (ev.type === 'paste') return void this.cdp.send('Input.insertText', { text: ev.text }, sid).catch(() => {});
+    if (ev.type === 'paste') {
+      if (this.resend) { this.resend = false; this.drawBar(); }
+      return void this.cdp.send('Input.insertText', { text: ev.text }, sid).catch(() => {});
+    }
     if (this.dialog && (ev.name === 'Enter' || ev.name === 'Escape')) {
       return void this.cdp.send('Page.handleJavaScriptDialog', { accept: ev.name === 'Enter' }, sid).catch(() => {});
     }
+    if (ev.ctrl && ev.name === 'r') return this.reload();
+    // Any other key is the answer "no" to sending a form again, and nothing more.
+    if (this.resend) { this.resend = false; return this.drawBar(); }
     if (ev.ctrl && ev.name === 'l') { this.editing = ''; this.newTab = false; return this.drawBar(); }
     if (ev.ctrl && ev.name === 't') return void this.showTabs().catch(() => {});
-    if (ev.ctrl && ev.name === 'r') return void this.cdp.send('Page.reload', {}, sid).catch(() => {});
-    if (ev.alt && (ev.name === 'ArrowLeft' || ev.name === 'ArrowRight')) return void this.history(ev.name === 'ArrowLeft' ? -1 : 1);
+    if (ev.alt && (ev.name === 'ArrowLeft' || ev.name === 'ArrowRight')) return void this.altArrow(ev);
     for (const c of keyCalls(ev)) this.cdp.send(c.method, c.params, sid).catch(() => {});
   }
 
@@ -875,6 +911,41 @@ export class Viewer {
     } else if (ev.kind === 'mode' && ev.mode === 1016) this.pixelMouse = ev.value === 1 || ev.value === 3;
     else if (ev.kind === 'da') this.measured?.();
     else if (ev.kind === 'gfx') this.onGfx(ev);
+  }
+
+  setPosted(posted) {
+    const tab = this.tab;
+    if (!tab || tab.posted === posted) return;
+    tab.posted = posted;
+    if (this.resend) { this.resend = false; this.drawBar(); }
+    this.announce();
+  }
+
+  /**
+   * Reload, for Ctrl+R and the bar's ↻. Chrome reloads the answer to a sent form by sending the
+   * form again: a payment, an order, a message. Its own reload asks first; asked through this
+   * connection it does not, so this asks: the bar says so, and Ctrl+R again does it.
+   */
+  reload() {
+    const tab = this.tab;
+    if (!tab) return;
+    if (tab.posted && !this.resend) { this.resend = true; return this.drawBar(); }
+    this.resend = false;
+    this.drawBar();
+    this.cdp.send('Page.reload', {}, tab.sid).catch(() => {});
+  }
+
+  /**
+   * Alt+← and Alt+→ go back and forward, except while the page is typed in: there they move by
+   * a word, as Option and an arrow do on a Mac, and must not walk out of a half-filled form.
+   */
+  async altArrow(ev) {
+    const tab = this.tab;
+    let typing = false;
+    try { typing = (await this.cdp.send('Runtime.evaluate', { expression: TYPING, returnByValue: true }, tab.sid)).result?.value === true; } catch {}
+    if (this.tab !== tab) return;
+    if (!typing) return this.history(ev.name === 'ArrowLeft' ? -1 : 1);
+    for (const c of keyCalls(ev)) this.cdp.send(c.method, c.params, tab.sid).catch(() => {});
   }
 
   async history(step) {
@@ -920,6 +991,7 @@ export class Viewer {
       return;
     }
     if (!this.geom || !this.tab.view || this.editing !== null) return;
+    if (pressed && this.resend) { this.resend = false; this.drawBar(); }
     const sid = this.tab.sid;
     const at = toPage(px, py, { ...this.geom, cssW: this.tab.view.w, cssH: this.tab.view.h }, this.term);
     const modifiers = (ev.b & 4 ? 8 : 0) | (ev.b & 8 ? 1 : 0) | (ev.b & 16 ? 2 : 0);
@@ -953,10 +1025,11 @@ export class Viewer {
   }
 
   onBarClick(col) {
-    const sid = this.tab.sid;
+    // The bar is asking whether to send a form again: a click on it says no.
+    if (this.resend) { this.resend = false; return this.drawBar(); }
     if (col >= 1 && col <= 2) this.history(-1);
     else if (col >= 4 && col <= 5) this.history(1);
-    else if (col >= 7 && col <= 8) this.cdp.send('Page.reload', {}, sid).catch(() => {});
+    else if (col >= 7 && col <= 8) this.reload();
     else { this.editing = ''; this.newTab = false; this.drawBar(); }
   }
 

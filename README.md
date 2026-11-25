@@ -157,8 +157,8 @@ chrome-pane tabs                 # list the tabs
 | --- | --- |
 | **Ctrl+T** | The list of Chrome's tabs: show another, open a new one, close one (it asks first) |
 | **Ctrl+L** | Type an address, or words to search for |
-| **Ctrl+R** | Reload |
-| **Alt+←**, **Alt+→** | Back, forward |
+| **Ctrl+R** | Reload. On the answer to a form you sent (a payment, an order) it asks first: a reload sends the form again |
+| **Alt+←**, **Alt+→** | Back, forward. In a field you are typing in, they move by a word instead |
 | **Ctrl+A**, **Ctrl+C**, **Ctrl+X**, **Ctrl+V**, **Ctrl+Z** | Select all, copy, cut, paste and undo in the page. On a Mac too, where Chrome has them on Cmd, which a terminal keeps for itself |
 | **Ctrl+Q** | Quit the viewer. The tab stays open in Chrome |
 
@@ -221,7 +221,7 @@ filled e12 "Email"
 
 | Command | What it prints |
 | --- | --- |
-| `open <url>`, `back`, `forward`, `reload` | The page it lands on. |
+| `open <url>`, `back`, `forward`, `reload` | The page it lands on. `reload` is refused on the answer to a sent form, which it would send again, unless it is `reload --resend`. |
 | `snapshot` | The controls in view under their sections and headings, each with a ref. `--all` the whole page, `--in <ref>` one part, `--text` with the text, `--urls` with the links' addresses. |
 | `find <text>` | The elements that have it, and whether each is in view, above or below. |
 | `read [ref\|css]` | The main text, or one part's. `--table` a table as rows. |
@@ -304,6 +304,8 @@ with. In short:
   debugging port of its own.
 - Nothing listens on the network: the connection is shared over one unix socket that only your
   user can open.
+- A reload of the answer to a sent form sends the form again, and Chrome does not ask when the
+  reload comes through this connection. So the pane asks you, and an agent's `reload` refuses.
 - The limits on agents (web addresses only, no secrets, the pane's tab only) are guidance for
   well-behaved agents, not a sandbox, and a page's text can try to instruct an agent that reads
   it. Watch the pane.

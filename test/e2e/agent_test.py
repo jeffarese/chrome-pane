@@ -51,7 +51,10 @@ LONG = ('<!doctype html><title>Long page</title><body style="margin:20px;font:16
 # one-byte forms of Esc [ and of the end of a sequence.
 ESC = '<!doctype html><title>Sneaky\x1b]52;c;eA==\x07 title</title><body><h1>Esc\x1b[31m here</h1><p>and \x9b31m too\x9c'
 POP = '<!doctype html><title>Pop page</title><body><h1>Pop</h1><button onclick="window.open(\'/next\')">Open</button>'
-PAGES = {'/': FORM, '/next': NEXT, '/long': LONG, '/esc': ESC, '/pop': POP}
+# A form that is sent the way a payment is: every time it arrives, the shop takes one more.
+PAY = '<!doctype html><title>Pay</title><body><h1>Pay</h1><form method=post action=/paid><label>Name <input name=n></label> <button>Pay now</button></form>'
+PAGES = {'/': FORM, '/next': NEXT, '/long': LONG, '/esc': ESC, '/pop': POP, '/pay': PAY}
+posts = 0
 
 class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
@@ -60,6 +63,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.send_header('Content-Type', 'text/html; charset=utf-8')
         self.end_headers()
         self.wfile.write((body or 'not here').encode())
+    def do_POST(self):
+        global posts
+        self.rfile.read(int(self.headers.get('Content-Length') or 0))
+        posts += 1
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/html; charset=utf-8')
+        self.send_header('Cache-Control', 'no-store')
+        self.end_headers()
+        self.wfile.write(('<!doctype html><title>Paid</title><body><h1>Paid, receipt %d</h1>' % posts).encode())
     def log_message(self, *a): pass
 server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Handler)
 threading.Thread(target=server.serve_forever, daemon=True).start()
@@ -290,6 +302,50 @@ run('eval', 'window.close()')
 time.sleep(1.5)
 code, text, _ = run('snapshot')
 step('when that tab closes, the pane is back on the page that opened it', followed and code == 0 and text.startswith('Pop page'))
+
+# The answer to a sent form: Chrome reloads it by sending the form again, and through this
+# connection it does not ask first. So neither the agent nor a key in the pane does it unasked.
+def until(what, secs=5.0):
+    end = time.time() + secs
+    while time.time() < end and not what(): time.sleep(0.05)
+    return what()
+code, text, _ = run('open', site + '/pay')
+code, text, _ = run('click', ref(text, 'button "Pay now"'))
+step('a form that is sent: the page is its answer', code == 0 and 'h1 "Paid, receipt 1"' in text and posts == 1)
+code, text, _ = run('reload')
+step('reload: refused on the answer to a sent form, which it would send again', code == 1 and 'sends the form again' in text and 'reload --resend' in text and posts == 1)
+run('done')
+n = len(out)
+os.write(fd, b'\x12')
+asked = shown(b'a reload sends the form again', 4, n)
+time.sleep(0.5)
+step('ctrl+r in the pane: asks first, and nothing is sent', asked and posts == 1)
+os.write(fd, b'z')
+time.sleep(0.4)
+os.write(fd, b'\x12')
+time.sleep(0.8)
+step('any other key is a no: the next ctrl+r asks again', posts == 1)
+os.write(fd, b'\x12')
+step('ctrl+r again: the form is sent again', until(lambda: posts == 2))
+code, text, _ = run('reload', '--resend')
+step('reload --resend: the agent sends it again, told to', code == 0 and 'receipt 3' in text and posts == 3)
+code, text, _ = run('open', site + '/next')
+code, text, _ = run('reload')
+step('reload: any other page reloads as ever', code == 0 and text.split('\n')[0] == 'Second page' and posts == 3)
+
+# Alt and an arrow go back and forward, but not out of a field that is being typed in.
+code, text, _ = run('open', site + '/')
+run('click', ref(text, 'textbox "Name"'))
+run('done')
+os.write(fd, b'one two'); time.sleep(0.6)
+os.write(fd, b'\x1b[1;3D'); time.sleep(0.6)
+os.write(fd, b'X'); time.sleep(0.6)
+typed, at = value('document.getElementById("name").value'), value('location.pathname')
+step('alt+left in a field moves by a word and leaves the page where it is: %s on %s' % (typed, at), typed == 'one Xtwo' and at == '/')
+run('eval', 'document.activeElement.blur()')
+os.write(fd, b'\x1b[1;3D')
+step('alt+left outside a field goes back', until(lambda: value('location.pathname') == '/next'))
+run('open', site + '/pop')
 
 n = len(out)
 code, text, _ = run('done')

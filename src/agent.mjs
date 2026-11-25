@@ -43,7 +43,7 @@ const noPane = () => (hostOf()
 
 // ---------------------------------------------------------------- arguments
 
-const FLAGS = new Set(['all', 'text', 'urls', 'table', 'idle', 'png', 'json']);
+const FLAGS = new Set(['all', 'text', 'urls', 'table', 'idle', 'png', 'json', 'resend']);
 const VALUES = new Set(['in', 'role', 'from', 'timeout', 'gone', 'url', 'scale', 'out', 'socket', 'user-data-dir']);
 
 function parse(argv) {
@@ -821,7 +821,13 @@ export async function runAgent(verb, argv, io = {}) {
         if (!r.loaderId || r.errorText) tab.loading = false;
         if (r.errorText) throw new Fail(`could not open ${o.address}: ${r.errorText}`);
       }
-      else if (verb === 'reload') { tab.loading = true; await tab.send('Page.reload'); }
+      else if (verb === 'reload') {
+        // Chrome reloads the answer to a sent form by sending the form again, and asked through
+        // this connection it does not ask the person first, as its own reload does.
+        if (pane?.posted && !o.resend) throw new Fail('this page is the answer to a form that was sent: a reload sends the form again, be it a payment, an order or a message. Ask the person first. If they want it sent again: chrome-pane reload --resend');
+        tab.loading = true;
+        await tab.send('Page.reload');
+      }
       else if (verb === 'back' || verb === 'forward') {
         const h = await tab.send('Page.getNavigationHistory');
         const entry = h.entries[h.currentIndex + (verb === 'back' ? -1 : 1)];

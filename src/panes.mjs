@@ -34,10 +34,11 @@ const readJson = (file) => { try { return JSON.parse(fs.readFileSync(file, 'utf8
 
 /**
  * This viewer shows that tab (targetId: null while it shows none). `where`: its Herdr space, tab
- * and terminal, if any. `dialog`: the alert or question the page stopped at, if it did.
+ * and terminal, if any. `dialog`: the alert or question the page stopped at, if it did. `posted`:
+ * the page is the answer to a form that was sent, so a reload would send the form again.
  */
-export function registerPane(targetId, where = {}, dialog = null, at = Date.now()) {
-  writeJson(path.join(dirOf('panes'), `${process.pid}.json`), { pid: process.pid, targetId, at, ...where, dialog });
+export function registerPane(targetId, where = {}, dialog = null, at = Date.now(), posted = false) {
+  writeJson(path.join(dirOf('panes'), `${process.pid}.json`), { pid: process.pid, targetId, at, ...where, dialog, ...(posted ? { posted: true } : {}) });
 }
 
 export function unregisterPane() {

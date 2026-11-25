@@ -7,6 +7,13 @@
   multiplexer is asked in its own words (`rex split`, `tern split`, `hc run`), through one
   adapter each in `src/hosts.mjs`. `CHROME_PANE_HOST` says which one when a terminal is inside
   two.
+- A reload no longer sends a form again unasked. Chrome reloads the answer to a sent form (a
+  payment, an order) by sending the form again, and does not ask when the reload comes through
+  the debugging connection. Ctrl+R and ↻ in the pane now ask first, and an agent's `reload`
+  refuses unless it is `reload --resend`.
+- Alt+← and Alt+→ in a field that is being typed in move by a word, as Option and an arrow do
+  on a Mac, instead of going back and forward out of a half-filled form.
+- A snapshot no longer lists the options of a list that is out of view.
 
 ## 0.1.0
 

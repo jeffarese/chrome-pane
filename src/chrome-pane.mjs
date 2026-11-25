@@ -31,7 +31,8 @@ For agents (they act on the tab the pane of their own tab shows, and answer in t
   chrome-pane find <text>      where on the page that is (--role <role>)
   chrome-pane read [ref|css]   the main text, or one part's (--table, --from <n>)
   chrome-pane click|hover|check|uncheck <ref>, fill <ref> <text>, select <ref> <option>,
-              type <text>, press <keys>, scroll [down|up|top|bottom|ref], back, forward, reload
+              type <text>, press <keys>, scroll [down|up|top|bottom|ref], back, forward,
+              reload [--resend] (the answer to a sent form is not sent again unasked)
                                one action; prints what changed
   chrome-pane wait <text>      until it is on the page (--gone <text>, --url <part>, --idle, --timeout <s>)
   chrome-pane batch            one action per line on its input
