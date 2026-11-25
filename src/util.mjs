@@ -43,6 +43,22 @@ export function fit(s, cols) {
   return out + '…' + ' '.repeat(cols - n - 1);
 }
 
+/** An address as a browser's bar writes it: no https://, no lone slash after the host. */
+export function shortAddress(url) {
+  return String(url ?? '').replace(/^https:\/\//i, '').replace(/^((?:http:\/\/)?[^/?#]+)\/$/i, '$1');
+}
+
+/**
+ * The page's line in the bar, for `cols` cells: the address first and whole while it fits, since
+ * it says where you are; the title after it only in the room that is left.
+ */
+export function barLine(url, title, cols) {
+  const address = shortAddress(url), sep = '  ·  ';
+  const left = cols - width(address) - width(sep);
+  if (!address) return title || '';
+  return title && left >= 8 ? `${address}${sep}${title}` : address;
+}
+
 /**
  * Where a frame of `img` pixels goes in the area under the bar: scaled to fit, keeping its
  * shape, centered across. Sizes are in cells; `row0` and `col0` are zero-based.

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { InputParser } from '../src/input.mjs';
 import { keyCalls } from '../src/keys.mjs';
-import { fit, normalizeUrl, place, pngSize, toPage, width } from '../src/util.mjs';
+import { barLine, fit, normalizeUrl, place, pngSize, shortAddress, toPage, width } from '../src/util.mjs';
 
 const names = (evs) => evs.map((e) => (e.type === 'key' ? `${e.ctrl ? 'C-' : ''}${e.alt ? 'A-' : ''}${e.shift ? 'S-' : ''}${e.name}` : e.type));
 
@@ -66,6 +66,16 @@ test('text that fits a bar', () => {
   assert.equal(fit('abc', 5), 'abc  ');
   assert.equal(fit('abcdefgh', 5), 'abcd…');
   assert.equal(width(fit('日本語のタイトル', 7)), 7);
+});
+
+test('the address in the bar, as a browser writes it', () => {
+  assert.equal(shortAddress('https://example.com/'), 'example.com');
+  assert.equal(shortAddress('https://example.com/a/?q=1'), 'example.com/a/?q=1');
+  assert.equal(shortAddress('http://localhost:3000/'), 'http://localhost:3000');
+  assert.equal(shortAddress('about:blank'), 'about:blank');
+  assert.equal(barLine('https://example.com/', 'Example', 40), 'example.com  ·  Example');
+  assert.equal(barLine('https://example.com/a/long/way/down', 'Example', 36), 'example.com/a/long/way/down');
+  assert.equal(barLine('', 'Example', 40), 'Example');
 });
 
 test('where a frame goes, and back to the page', () => {

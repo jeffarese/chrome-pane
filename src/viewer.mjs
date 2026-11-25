@@ -7,7 +7,7 @@ import { InputParser } from './input.mjs';
 import { keyCalls } from './keys.mjs';
 import { notesDir, readAsk, readNote, registerPane, unregisterPane, writeAsk } from './panes.mjs';
 import { changedCells, decodePng, encodePng } from './png.mjs';
-import { fit, normalizeUrl, place, pngSize, toPage } from './util.mjs';
+import { barLine, fit, normalizeUrl, place, pngSize, shortAddress, toPage, width } from './util.mjs';
 
 const ST = '\x1b\\';
 const MOUSE_ON = '\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1006h';
@@ -429,15 +429,19 @@ export class Viewer {
 
   drawBar() {
     const cols = this.term.cols;
+    const hint = this.mode === 'page' && this.editing === null && !this.dialog && cols >= 70 ? ' ^T tabs · ^L address · ^Q quit ' : '';
     let text;
     if (this.editing !== null) text = ` Go to: ${this.editing}▏`;
     else if (this.dialog) text = ` ${this.dialog.type}: ${this.dialog.message}   (Enter: OK · Esc: cancel)`;
     else if (this.mode === 'tabs') text = ' Chrome tabs    ↑↓ move · Enter show · n new tab · x close tab · Esc back · q quit';
     else if (this.mode === 'page' && this.tab && this.hidden) text = ' ⏸  Chrome is not drawing this tab (it is behind another one). Click or press a key to bring it forward.';
-    else if (this.mode === 'page' && this.tab && this.agent) text = ` ● Agent: ${this.agent}   ·   ${this.tab.title || this.tab.url}`;
-    else if (this.mode === 'page' && this.tab) text = ` ‹  ›  ↻  ${this.tab.title ? `${this.tab.title} — ` : ''}${this.tab.url}`;
+    else if (this.mode === 'page' && this.tab && this.agent) {
+      text = ` ● Agent: ${this.agent}`;
+      const page = this.tab.title || shortAddress(this.tab.url);
+      if (page && cols - hint.length - width(text) >= 15) text += `   ·   ${page}`;
+    }
+    else if (this.mode === 'page' && this.tab) text = ` ‹  ›  ↻  ${barLine(this.tab.url, this.tab.title, cols - hint.length - 10)}`;
     else text = ' Chrome';
-    const hint = this.mode === 'page' && this.editing === null && !this.dialog && cols >= 70 ? ' ^T tabs · ^L address · ^Q quit ' : '';
     this.w(`\x1b[1;1H\x1b[0;7m${fit(text, cols - hint.length)}${hint}\x1b[0m`);
     if (this.mode === 'page' && this.tab) this.w(`\x1b]2;${(this.tab.title || this.tab.url || 'Chrome').replace(/[\x00-\x1f\x7f]/g, ' ').slice(0, 120)}${ST}`);
   }
