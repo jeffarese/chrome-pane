@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runAgent, VERBS } from './agent.mjs';
+import { Holder } from './holder.mjs';
 import { BRIDGE, canConnect, runBridge } from './bridge.mjs';
 import { connect } from './cdp.mjs';
 import { hostOf } from './hosts.mjs';
@@ -44,7 +45,13 @@ For agents (they act on the tab the pane of their own tab shows, and answer in t
   chrome-pane batch            one action per line on its input
   chrome-pane shot             a picture of the view, into a file (--scale <n>, --png, --out <new file>)
   chrome-pane eval <js>, dialog accept|dismiss, done
-  chrome-pane close            quit the pane (the tab stays open in Chrome)
+  chrome-pane close            quit the pane (the tab stays open in Chrome), or close the hidden tab
+  chrome-pane show             open the hidden tab in a pane, for the person to see and use
+
+With no pane, \`open\` opens one beside the agent in Herdr, Rex or Tern. With --hidden (or
+CHROME_PANE_HIDDEN=1), or with no multiplexer to open a pane in, it works in a hidden tab
+instead: a tab of Chrome opened behind the others, shown in no pane, closed by \`close\` or
+after 30 minutes unused (CHROME_PANE_HIDDEN_IDLE, in seconds).
 
 In a terminal, the tab is shown there. Called by a program with no terminal (an agent) inside
 Herdr, Rex or Tern, or with --pane, it opens as a new pane beside the one it was called from.
@@ -128,7 +135,7 @@ async function main() {
     if (process.stdout.destroyed || process.stdout.writableEnded) process.exit(code);
     return void process.stdout.write('', () => process.exit(code));
   }
-  const commands = new Set(['view', 'tabs', 'status', 'stop', 'bridge', 'herdr', 'skill', 'help', 'bar']);
+  const commands = new Set(['view', 'tabs', 'status', 'stop', 'bridge', 'herdr', 'skill', 'help', 'bar', 'hold']);
   const cmd = commands.has(argv[0]) ? argv.shift() : null;
   if (cmd === 'skill') return skill(argv);
   if (cmd === 'bar') {
@@ -141,7 +148,8 @@ async function main() {
       if (argv[i] === '--in') { id = argv[++i]; if (!id) throw new Error('--in needs the pane\'s terminal, or its viewer\'s pid'); }
       else if (argv[i] !== '--json') rest.push(argv[i]);
     }
-    let panes = listPanes({ all: true });
+    // A hidden tab has no bar.
+    let panes = listPanes({ all: true }).filter((p) => !p.hidden);
     if (id) panes = panes.filter((p) => String(p.pid) === id || p.terminal === id);
     else { const host = hostOf(); if (host) try { panes = host.panes(panes, process.env); } catch {} }
     if (!panes.length) throw new Error(id ? `no Chrome pane runs in ${id}` : 'there is no Chrome pane here (chrome-pane bar --in <terminal or pid>: of another tab)');
@@ -160,6 +168,8 @@ async function main() {
   if (o.help || cmd === 'help') return console.log(HELP);
 
   if (cmd === 'bridge') return runBridge(o);
+  // An agent's hidden tab: started by `chrome-pane open` when there is no pane to open.
+  if (cmd === 'hold') return new Holder({ url: o._[0], userDataDir: o.userDataDir, socket: o.socket }).run();
 
   if (cmd === 'status' || cmd === 'stop') {
     // The pid in the file is a bridge's only if that process is one: a file outlives its bridge

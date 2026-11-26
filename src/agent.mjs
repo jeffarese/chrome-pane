@@ -10,18 +10,20 @@
 // same for as long as the element lives, and the letter names the document it was given for
 // (e, then f for the next page loaded in the tab...). So a ref needs no table kept between
 // commands, and one from an earlier page is refused instead of pointing at some other element.
+import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { canConnect } from './bridge.mjs';
 import { connect } from './cdp.mjs';
 import { hostOf } from './hosts.mjs';
 import { keyCalls } from './keys.mjs';
 import { listPanes, ours, readBefore, readDoc, writeAsk, writeBefore, writeDoc, writeNote } from './panes.mjs';
-import { socketPath, stateDir } from './paths.mjs';
+import { logPath, socketPath, stateDir } from './paths.mjs';
 import { clean, oneLine, pngSize } from './util.mjs';
 
 export const VERBS = new Set(['open', 'snapshot', 'find', 'read', 'click', 'hover', 'fill', 'type', 'press', 'select', 'check', 'uncheck',
-  'scroll', 'wait', 'back', 'forward', 'reload', 'batch', 'shot', 'eval', 'dialog', 'done', 'close']);
+  'scroll', 'wait', 'back', 'forward', 'reload', 'batch', 'shot', 'eval', 'dialog', 'done', 'close', 'show']);
 const ACTS = new Set(['click', 'hover', 'fill', 'type', 'press', 'select', 'check', 'uncheck', 'scroll', 'wait']);
 const TYPING = new Set(['fill', 'type', 'press']);
 
@@ -39,14 +41,15 @@ class NotThere extends Fail {}
 /** The page stopped at an alert or a question: nothing in it answers until that is answered. */
 class DialogOpen extends Fail {}
 
-// Outside a multiplexer nothing can open a pane for the agent: a person shows a tab first.
+// Outside a multiplexer `open` works in a hidden tab: there is no pane to open there.
 const noPane = () => (hostOf()
   ? `No Chrome pane in this ${hostOf().name} tab. Run: chrome-pane open <url>`
-  : 'No Chrome pane is open. Show a tab first: run chrome-pane in a terminal.');
+  : 'No Chrome pane here. Run: chrome-pane open <url> (it works in a hidden tab of Chrome)');
+const ASK_ALLOW = 'Chrome is asking the person to allow the connection (its “Allow remote debugging?” prompt, on the computer Chrome runs on). Once they have, run the command again.';
 
 // ---------------------------------------------------------------- arguments
 
-const FLAGS = new Set(['all', 'text', 'urls', 'table', 'idle', 'png', 'json', 'resend']);
+const FLAGS = new Set(['all', 'text', 'urls', 'table', 'idle', 'png', 'json', 'resend', 'hidden']);
 const VALUES = new Set(['in', 'role', 'from', 'timeout', 'gone', 'url', 'scale', 'out', 'socket', 'user-data-dir']);
 
 function parse(argv) {
@@ -969,7 +972,7 @@ function jpegSize(buf) {
  * tab, not a screenshot: while Chrome takes a screenshot of a page whose size a viewer set, the
  * person's clicks get lost.
  */
-async function shot(tab, o) {
+async function shot(tab, o, hidden = false) {
   const ext = o.png ? '.png' : '.jpg';
   // Its own folder, the person's alone. Elsewhere only a new picture file: never over a file
   // there is, and never a name that some program reads as anything but a picture.
@@ -988,16 +991,18 @@ async function shot(tab, o) {
       try { if (Date.now() - fs.statSync(old).mtimeMs > 86400000) fs.unlinkSync(old); } catch {}
     }
   }
-  const view = await tab.run(function () { return { vw: innerWidth, vh: innerHeight }; });
+  const view = await tab.run(function () { return { vw: innerWidth, vh: innerHeight, x: visualViewport.pageLeft, y: visualViewport.pageTop }; });
   const scale = Math.min(2, Math.max(0.1, Number(o.scale) || 1)), format = o.png ? 'png' : 'jpeg';
-  const frame = new Promise((resolve, reject) => {
+  // A hidden tab is behind the others in Chrome, which draws no frames of it: a screenshot then.
+  // (With no pane, there are no clicks of the person's for a screenshot to lose.)
+  const frame = hidden ? tab.send('Page.captureScreenshot', { format, quality: 70, clip: { x: view.x, y: view.y, width: view.vw, height: view.vh, scale } }, 10000) : new Promise((resolve, reject) => {
     const timer = setTimeout(() => { tab.cdp.off('event', on); reject(new Fail('Chrome sent no picture: it is not drawing this tab (it may be behind another one in Chrome)')); }, 4000);
     const on = (method, p, sid) => { if (sid === tab.sid && method === 'Page.screencastFrame') { clearTimeout(timer); tab.cdp.off('event', on); resolve(p); } };
     tab.cdp.on('event', on);
   });
-  await tab.send('Page.startScreencast', { format, quality: 70, maxWidth: Math.round(view.vw * scale), maxHeight: Math.round(view.vh * scale), everyNthFrame: 1 });
+  if (!hidden) await tab.send('Page.startScreencast', { format, quality: 70, maxWidth: Math.round(view.vw * scale), maxHeight: Math.round(view.vh * scale), everyNthFrame: 1 });
   let p;
-  try { p = await frame; } finally { await tab.send('Page.stopScreencast').catch(() => {}); }
+  try { p = await frame; } finally { if (!hidden) await tab.send('Page.stopScreencast').catch(() => {}); }
   const buf = Buffer.from(p.data, 'base64');
   try { fs.writeFileSync(file, buf, { mode: 0o600, flag: 'wx' }); }
   catch (e) { throw new Fail(e.code === 'EEXIST' ? `${file} exists: shot never writes over a file` : `could not write ${file}: ${e.code === 'ENOENT' ? 'its folder does not exist' : e.message}`); }
@@ -1013,7 +1018,8 @@ async function shot(tab, o) {
  * that says which tab that is. Outside one (host: null) there is no "this tab": every viewer.
  */
 function paneList(opts = {}) {
-  const panes = listPanes(opts);
+  // A pane the person sees comes before a hidden tab: what they look at is what an agent acts on.
+  const panes = listPanes(opts).sort((a, b) => Boolean(a.hidden) - Boolean(b.hidden));
   const host = hostOf();
   if (host) try { return { host, panes: host.panes(panes, process.env) }; } catch {}
   return { host: null, panes };
@@ -1030,16 +1036,36 @@ async function bridge(o) {
   return cdp;
 }
 
-/** Opens the pane (it starts the bridge and shows the address) and waits for it to say which tab it shows. */
-async function openPaneAt(url) {
+/** Starts a hidden tab's holder (it starts the bridge too), at the address. Resolves to how to find it. */
+function startHolder(url, o) {
+  fs.mkdirSync(path.dirname(logPath()), { recursive: true, mode: 0o700 });
+  const log = fs.openSync(logPath(), 'a');
+  const args = [fileURLToPath(new URL('./chrome-pane.mjs', import.meta.url)), 'hold', url];
+  if (o.socket) args.push('--socket', o.socket);
+  if (o.userDataDir) args.push('--user-data-dir', o.userDataDir);
+  const child = spawn(process.execPath, args, { detached: true, stdio: ['ignore', log, log], env: process.env });
+  child.unref();
+  fs.closeSync(log);
+  return (list) => list.find((p) => p.pid === child.pid);
+}
+
+/**
+ * Opens the pane (it starts the bridge and shows the address) and waits for it to say which tab
+ * it shows. `hidden`, or with no multiplexer to open a pane in: a hidden tab instead.
+ */
+async function openPaneAt(url, o = {}) {
   // A pane that is there but shows no tab (its list of tabs, or it waits for Chrome's prompt)
   // is asked to open the address: never a second pane beside it.
   const { host, panes: [idle] } = paneList({ all: true });
-  if (!idle && !host) throw new Fail('There is no Chrome pane, and this terminal is not one of Herdr, Rex or Tern to open one in. Run chrome-pane in a terminal first.', 2);
+  if (idle?.state === 'waiting') throw new Fail(ASK_ALLOW, 2);
+  const hidden = !idle && (o.hidden || /^(1|true|yes)$/i.test(process.env.CHROME_PANE_HIDDEN ?? '') || !host);
   let match, opened = false;
   if (idle) {
     writeAsk(`pane-${idle.pid}`, { open: url });
     match = (list) => list.find((p) => p.pid === idle.pid);
+  } else if (hidden) {
+    match = startHolder(url, o);
+    opened = true;
   } else {
     try {
       // A pane of this tab that has not said anything yet (it is starting) is waited for, too.
@@ -1050,11 +1076,13 @@ async function openPaneAt(url) {
   }
   for (let i = 0; i < 150; i++) {
     await sleep(100);
-    const pane = match(listPanes());
-    if (pane) return pane.targetId;
+    const pane = match(listPanes({ all: true }));
+    if (pane?.targetId) return pane.targetId;
+    // A hidden tab has no pane to show Chrome's prompt in: say so now. It opens once allowed.
+    if (pane?.hidden && pane.state === 'waiting') throw new Fail(ASK_ALLOW, 2);
   }
   if (idle) writeAsk(`pane-${idle.pid}`, null);
-  throw new Fail(`The pane ${opened ? 'opened' : 'is there'} but shows no tab yet: Chrome may be asking the person to allow the connection. Try again once they have (it will not open a second pane).`, 2);
+  throw new Fail(`The ${hidden ? 'hidden tab' : 'pane'} ${opened ? 'opened' : 'is there'} but shows no page yet: Chrome may be asking the person to allow the connection. Try again once they have (it will not open a second one).`, 2);
 }
 
 /**
@@ -1065,14 +1093,38 @@ async function openPaneAt(url) {
 async function closePane(out) {
   const pane = paneList({ all: true }).panes[0];
   if (!pane) { out('There is no Chrome pane here.'); return 0; }
+  const hidden = Boolean(pane.hidden);
   if (pane.targetId) writeNote(pane.targetId, null);
   // ours, not only alive: a viewer that has quit may linger as a zombie until its parent reaps it.
   const alive = () => ours(pane.pid);
   if (alive()) process.kill(pane.pid, 'SIGTERM');
   for (let i = 0; i < 60 && alive(); i++) await sleep(50);
   if (alive()) throw new Fail(`the pane (pid ${pane.pid}) has not closed yet. The person can quit it with Ctrl+Q`);
-  out('Closed the pane. The tab stays open in Chrome.');
+  // A hidden tab's holder closes the tabs it opened: the person never saw them.
+  out(hidden ? 'Closed the hidden tab.' : 'Closed the pane. The tab stays open in Chrome.');
   return 0;
+}
+
+/**
+ * Shows the hidden tab to the person: a pane on it beside the agent's, which they can use (a
+ * password to type, a purchase to confirm). Its holder steps aside once the pane shows the tab.
+ * With no multiplexer to open a pane in, it says what the person can run.
+ */
+async function showPane(out) {
+  const { host, panes: [pane] } = paneList();
+  if (!pane) throw new Fail(noPane(), 2);
+  if (!pane.hidden) { out('The pane beside you shows the tab already.'); return 0; }
+  if (!host) {
+    out(`There is no terminal of Herdr, Rex or Tern here to open a pane in. The person can see the tab and use it with, in a terminal: chrome-pane --tab ${pane.targetId}`);
+    return 0;
+  }
+  let match;
+  try { match = host.open(['--tab', pane.targetId], process.env).match; } catch (e) { throw new Fail(`${host.name} did not open the pane: ${oneLine(e.message)}`, 2); }
+  for (let i = 0; i < 150; i++) {
+    await sleep(100);
+    if (match(listPanes())?.targetId === pane.targetId) { out(`The tab is in a pane of this ${host.name} tab now: the person can see it and use it.`); return 0; }
+  }
+  throw new Fail('The pane opened but does not show the tab yet: Chrome may be asking the person to allow the connection.', 2);
 }
 
 /** Runs one agent command. Resolves to its exit code; what it has to say goes to `out`. */
@@ -1090,6 +1142,7 @@ export async function runAgent(verb, argv, io = {}) {
     const note = (text) => writeNote(targetId, text);
     if (verb === 'done') { if (targetId) note(null); return 0; }
     if (verb === 'close') return await closePane(out);
+    if (verb === 'show') return await showPane(out);
     if (verb === 'dialog') {
       const accept = o._[0] === 'accept';
       if (!accept && o._[0] !== 'dismiss') throw new Fail('dialog accept [text], or dialog dismiss');
@@ -1127,8 +1180,11 @@ export async function runAgent(verb, argv, io = {}) {
     }
     if (pane?.dialog) throw new DialogOpen(dialogLine(pane.dialog));
     if (!targetId) {
-      if (verb !== 'open') throw new Fail(noPane(), 2);
-      targetId = await openPaneAt(o.address);
+      if (verb !== 'open') {
+        const gone = paneList({ all: true }).panes.find((p) => p.hidden && p.lost);
+        throw new Fail(gone ? `${gone.lost} Run: chrome-pane open <url>` : noPane(), 2);
+      }
+      targetId = await openPaneAt(o.address, o);
       fresh = true;
     }
     cdp = await bridge(o);
@@ -1203,7 +1259,7 @@ export async function runAgent(verb, argv, io = {}) {
       out(`text of ${origin}${what ? ` (${what})` : ''}, as the page wrote it:\n${cutText(String(text).replace(/\n{3,}/g, '\n\n').trim(), o, `read${what ? ` ${what}` : ''}`)}`);
       return 0;
     }
-    if (verb === 'shot') { out(await shot(tab, o)); return 0; }
+    if (verb === 'shot') { out(await shot(tab, o, Boolean(pane?.hidden))); return 0; }
     if (verb === 'eval') {
       if (!o._.length) throw new Fail('eval needs an expression');
       const r = await tab.send('Runtime.evaluate', { expression: o._.join(' '), returnByValue: true, awaitPromise: true });

@@ -26,7 +26,7 @@ start_chrome() { # start_chrome <profile folder>
   until [ -s "$1/DevToolsActivePort" ]; do i=$((i + 1)); [ $i -lt 100 ] || { echo "Chrome did not start" >&2; exit 2; }; sleep 0.1; done
 }
 cleanup() {
-  for state in "$tmp/state" "$tmp/zstate"; do CHROME_PANE_STATE="$state" "$root/bin/chrome-pane" stop >/dev/null 2>&1 || :; done
+  for state in "$tmp/state" "$tmp/zstate" "$tmp/hstate"; do CHROME_PANE_STATE="$state" "$root/bin/chrome-pane" stop >/dev/null 2>&1 || :; done
   for pid in $pids; do kill "$pid" 2>/dev/null || :; wait "$pid" 2>/dev/null || :; done
   rm -rf "$tmp"
 }
@@ -50,4 +50,6 @@ echo "== an agent's commands"
 /usr/bin/python3 "$here/agent_test.py" "$root/bin/chrome-pane" "$tmp/profile" "$CHROME_PANE_STATE" 16x34 || status=1
 echo "== an agent's commands, pages at 80%"
 /usr/bin/python3 "$here/agent_test.py" "$root/bin/chrome-pane" "$tmp/zprofile" "$tmp/zstate" 16x34 0.8 || status=1
+echo "== an agent's commands with no pane: a hidden tab"
+/usr/bin/python3 "$here/hidden_test.py" "$root/bin/chrome-pane" "$tmp/profile" "$tmp/hstate" || status=1
 exit $status

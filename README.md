@@ -220,7 +220,7 @@ the right of the agent. Or type `chrome-pane --pane example.com` there yourself.
 | **[Herdr](https://herdr.dev)** | Nothing more: the installer gave the Herdr app the pane's name and icon. If you install Herdr later, run `chrome-pane herdr`. To watch from another computer, see [From another computer](#from-another-computer). |
 | **Rex** | Nothing. chrome-pane opens the pane with Rex's own `rex` command, which it finds through what Rex gives its panes (`REX_BIN_DIR`), then on the PATH. |
 | **Tern** | Nothing. chrome-pane opens the pane with Tern's own `tern` command, which it finds through what Tern gives its panes (`TERN_EXE`), then on the PATH and in `/Applications/Tern.app`. |
-| **Ghostty, kitty** | Nothing. There is no pane to open for you: run `chrome-pane` in the split you want it in. |
+| **Ghostty, kitty** | Nothing. There is no pane to open for you: run `chrome-pane` in the split you want it in. An agent with no pane works in [a hidden tab](#with-no-pane-a-hidden-tab). |
 
 ### For your agents
 
@@ -412,7 +412,8 @@ filled e12 "Email"
 | `dialog accept\|dismiss` | Answers the page's alert or question, and prints what the page did with the answer: the outcome of the action that made it ask. |
 | `eval <js>` | The value. Not among the commands the skill lets an agent run unasked. |
 | `done` | Nothing: the pane's bar stops saying an agent is at work. |
-| `close` | That the pane closed: its viewer quits, as with Ctrl+Q, and the tab stays open in Chrome. With no pane here, it says so and succeeds. |
+| `close` | That the pane closed: its viewer quits, as with Ctrl+Q, and the tab stays open in Chrome. A hidden tab is closed. With no pane here, it says so and succeeds. |
+| `show` | A hidden tab, opened in a pane beside the agent for you to see and use; with no multiplexer, the command you run to see it. |
 
 An agent's command acts on the tab shown by the pane of the Herdr, Rex or Tern tab it runs in.
 While it does, the pane's bar says what it is doing.
@@ -440,6 +441,27 @@ field's value; writing a picture over a file. They know such a field by its type
 `autocomplete` or its name, so a page that hides what a field is can get past them, and `eval`
 runs whatever JavaScript it is given: these are limits for an agent that means well, not a
 wall. [SECURITY.md](SECURITY.md) says what is and is not protected.
+
+### With no pane: a hidden tab
+
+`chrome-pane open --hidden <url>` works in a hidden tab instead of a pane: a tab of your
+Chrome, signed in as you, opened behind the others in its window and shown in no pane. Every
+command works on it as on a pane. It
+is what `open` does anyway where there is no pane to open: an agent in Ghostty or kitty, or one
+run with no terminal at all (`claude -p`, a scheduled job). `CHROME_PANE_HIDDEN=1` in an
+agent's environment makes it the default in Herdr, Rex and Tern too.
+
+A small process holds the tab (`chrome-pane hold`, started by `open`): it answers the page's
+dialogs, follows a page into a tab it opens, and knows the answer to a sent form, as a pane's
+viewer does. It never brings the tab to the front, so your Chrome stays on the tab you were on
+(the tab is in its tab strip all the same).
+
+- `chrome-pane show` hands the tab to you: a pane on it beside the agent, for a password to
+  type or a purchase to confirm. The holder steps aside, and the tab is yours. With no
+  multiplexer, `show` prints the command to run in a terminal (`chrome-pane --tab <id>`).
+- `chrome-pane close` closes the tab, which you never saw. Left unused for 30 minutes
+  (`CHROME_PANE_HIDDEN_IDLE`, in seconds), it closes by itself.
+- A pane you see comes first: where an agent has both, it acts on the pane.
 
 **The skill** (`skills/chrome-pane`) tells an agent all of this. `./install.sh` gives it to
 Claude Code and Codex, and `chrome-pane skill` prints it for any other agent ([how](#for-your-agents)).
@@ -527,6 +549,10 @@ with. In short:
   folder (`src/panes.mjs`): which tab a pane shows, what an agent is doing to it, the dialog a
   page stopped at. The viewer answers dialogs for agents, because Chrome lets only a session
   that saw a dialog open answer it.
+- **Hidden tab** (`src/holder.mjs`). A viewer that draws nothing: it opens a background tab,
+  registers in the state folder as a pane marked hidden, and does for agents what a viewer
+  does (dialogs, a tab the page opens, the answer to a sent form). It goes on `close`, when a
+  pane shows its tab, when the bridge goes, and when it has been unused for a while.
 
 ## Limits
 
@@ -537,6 +563,14 @@ with. In short:
   and a click or key in it brings the tab forward again (`--no-front` never does). Two viewers on
   two tabs of the same Chrome window take turns for the same reason.
 - Chrome may show that it is being debugged while the bridge is connected.
+- **A hidden tab is a background tab**, and Chrome slows those down: their timers run once a
+  second at most, and more rarely after a few minutes. A page gets there, later: an action may
+  come back before what the page does a second later, which `wait` then waits for. Chrome may
+  also discard a background tab to save memory; the agent is told so.
+- A tab that a page in a hidden tab opens (a sign-in window, a link to a new tab) is Chrome's to
+  place, and may come to the front in your Chrome.
+- Outside a multiplexer there is no "this tab" to tell agents apart by: two agents there share
+  the pane or hidden tab used last.
 - Native menus (a `<select>`'s list, the file picker, right-click menus) are drawn by the
   system, not the page, so they don't appear. An agent's `select` works all the same. In Herdr,
   right-click opens Herdr's own menu.

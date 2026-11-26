@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- An agent can work with no pane: `chrome-pane open --hidden <url>` drives a hidden tab, a
+  tab of the person's Chrome opened behind the others and shown in no pane, with every command
+  as on a pane.
+  `open` does that by itself where there is no multiplexer to open a pane in (Ghostty, kitty,
+  `claude -p`), which used to be an error, and `CHROME_PANE_HIDDEN=1` makes it the default
+  anywhere. A holder process (`chrome-pane hold`) keeps the tab as a pane's viewer would: it
+  answers dialogs, follows a page into a tab it opens, and knows the answer to a sent form.
+  `chrome-pane show` opens the hidden tab in a pane for the person, and the holder steps aside;
+  `close` closes the tab, and an unused one closes after 30 minutes
+  (`CHROME_PANE_HIDDEN_IDLE`). `shot` takes a screenshot there, since Chrome draws no frames of
+  a background tab. A pane the person sees comes before a hidden tab.
 - `chrome-pane close` quits the pane of the agent's tab, as Ctrl+Q in it would, and the tab
   stays open in Chrome. The skill tells agents to close the pane when the task is done, unless
   the user is using it or the next step is theirs.

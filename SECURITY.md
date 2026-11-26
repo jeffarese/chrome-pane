@@ -21,7 +21,7 @@ that connection can read and drive every tab: treat it like your browser's sessi
   it could read Chrome's cookies from disk. The socket is not a boundary against your own
   account.
 - **The limits on agents are guidance, not a sandbox.** The agent commands take only http and
-  https addresses and act only on the tab a pane shows. `fill`, `type` and `press` refuse
+  https addresses and act only on the tab a pane shows, or the hidden tab one opened. `fill`, `type` and `press` refuse
   password, one-time-code and card fields, and a field inside another site's frame; a
   snapshot prints `[filled]` for such a field's value. `shot` writes only a new `.jpg` or
   `.png` file, never over one. That stops a well-behaved agent from wandering and blunts
@@ -34,6 +34,11 @@ that connection can read and drive every tab: treat it like your browser's sessi
   their output comes from; an agent can still be fooled. What a page wrote is printed without
   control codes, so it cannot drive the terminal it is printed in. Keep an eye on the pane: its bar shows
   what an agent is doing, and your keys and mouse work at all times.
+- **A hidden tab is not watched.** `open --hidden`, `CHROME_PANE_HIDDEN=1`, and `open` where
+  there is no multiplexer (an agent in a plain terminal, `claude -p`, a scheduled job) drive a
+  tab of your signed-in Chrome that no pane shows. The same limits hold; only you are not
+  there to see it. `chrome-pane show` puts it in a pane, `chrome-pane stop` ends every
+  connection.
 
 ## Logs
 
