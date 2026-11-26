@@ -44,6 +44,7 @@ For agents (they act on the tab the pane of their own tab shows, and answer in t
   chrome-pane batch            one action per line on its input
   chrome-pane shot             a picture of the view, into a file (--scale <n>, --png, --out <new file>)
   chrome-pane eval <js>, dialog accept|dismiss, done
+  chrome-pane close            quit the pane (the tab stays open in Chrome)
 
 In a terminal, the tab is shown there. Called by a program with no terminal (an agent) inside
 Herdr, Rex or Tern, or with --pane, it opens as a new pane beside the one it was called from.

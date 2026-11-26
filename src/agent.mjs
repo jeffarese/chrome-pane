@@ -16,12 +16,12 @@ import { canConnect } from './bridge.mjs';
 import { connect } from './cdp.mjs';
 import { hostOf } from './hosts.mjs';
 import { keyCalls } from './keys.mjs';
-import { listPanes, readBefore, readDoc, writeAsk, writeBefore, writeDoc, writeNote } from './panes.mjs';
+import { listPanes, ours, readBefore, readDoc, writeAsk, writeBefore, writeDoc, writeNote } from './panes.mjs';
 import { socketPath, stateDir } from './paths.mjs';
 import { clean, oneLine, pngSize } from './util.mjs';
 
 export const VERBS = new Set(['open', 'snapshot', 'find', 'read', 'click', 'hover', 'fill', 'type', 'press', 'select', 'check', 'uncheck',
-  'scroll', 'wait', 'back', 'forward', 'reload', 'batch', 'shot', 'eval', 'dialog', 'done']);
+  'scroll', 'wait', 'back', 'forward', 'reload', 'batch', 'shot', 'eval', 'dialog', 'done', 'close']);
 const ACTS = new Set(['click', 'hover', 'fill', 'type', 'press', 'select', 'check', 'uncheck', 'scroll', 'wait']);
 const TYPING = new Set(['fill', 'type', 'press']);
 
@@ -1057,6 +1057,24 @@ async function openPaneAt(url) {
   throw new Fail(`The pane ${opened ? 'opened' : 'is there'} but shows no tab yet: Chrome may be asking the person to allow the connection. Try again once they have (it will not open a second pane).`, 2);
 }
 
+/**
+ * Quits the viewer of this tab's pane, as Ctrl+Q in it would: it gives the tab its own size back
+ * and goes, and its multiplexer takes the pane away. The tab stays open in Chrome. With no pane
+ * there is nothing to do, which is not a failure: the pane was closed all the same.
+ */
+async function closePane(out) {
+  const pane = paneList({ all: true }).panes[0];
+  if (!pane) { out('There is no Chrome pane here.'); return 0; }
+  if (pane.targetId) writeNote(pane.targetId, null);
+  // ours, not only alive: a viewer that has quit may linger as a zombie until its parent reaps it.
+  const alive = () => ours(pane.pid);
+  if (alive()) process.kill(pane.pid, 'SIGTERM');
+  for (let i = 0; i < 60 && alive(); i++) await sleep(50);
+  if (alive()) throw new Fail(`the pane (pid ${pane.pid}) has not closed yet. The person can quit it with Ctrl+Q`);
+  out('Closed the pane. The tab stays open in Chrome.');
+  return 0;
+}
+
 /** Runs one agent command. Resolves to its exit code; what it has to say goes to `out`. */
 export async function runAgent(verb, argv, io = {}) {
   // What a command prints is mostly the page's own words: never its control codes.
@@ -1071,6 +1089,7 @@ export async function runAgent(verb, argv, io = {}) {
     let fresh = false;
     const note = (text) => writeNote(targetId, text);
     if (verb === 'done') { if (targetId) note(null); return 0; }
+    if (verb === 'close') return await closePane(out);
     if (verb === 'dialog') {
       const accept = o._[0] === 'accept';
       if (!accept && o._[0] !== 'dismiss') throw new Fail('dialog accept [text], or dialog dismiss');

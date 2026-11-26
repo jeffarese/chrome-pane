@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- `chrome-pane close` quits the pane of the agent's tab, as Ctrl+Q in it would, and the tab
+  stays open in Chrome. The skill tells agents to close the pane when the task is done, unless
+  the user is using it or the next step is theirs.
 - The pane's bar is a browser's toolbar. It is drawn in the terminal's own colours instead of
   reverse video. Back and forward are dim when there is nowhere to go, reload is stop while the
   page loads, and the mouse over a button says what it does. The address is a field that opens

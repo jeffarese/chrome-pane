@@ -412,6 +412,7 @@ filled e12 "Email"
 | `dialog accept\|dismiss` | Answers the page's alert or question, and prints what the page did with the answer: the outcome of the action that made it ask. |
 | `eval <js>` | The value. Not among the commands the skill lets an agent run unasked. |
 | `done` | Nothing: the pane's bar stops saying an agent is at work. |
+| `close` | That the pane closed: its viewer quits, as with Ctrl+Q, and the tab stays open in Chrome. With no pane here, it says so and succeeds. |
 
 An agent's command acts on the tab shown by the pane of the Herdr, Rex or Tern tab it runs in.
 While it does, the pane's bar says what it is doing.
